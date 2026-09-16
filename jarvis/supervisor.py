@@ -38,8 +38,21 @@ def _core_subgraph():
 
 
 def retrieve_node(state: AgentState) -> dict[str, Any]:
+    """Memoria + reset de flags de hop para cada turno de usuario (checkpointer)."""
     query = state.get("user_query") or last_user_text(state.get("messages") or [])
-    return {"retrieved_context": get_memory().retrieve(query), "user_query": query}
+    return {
+        "retrieved_context": get_memory().retrieve(query),
+        "user_query": query,
+        "hops": 0,
+        "task_complete": False,
+        "error": None,
+        "active_agent": "",
+        "next_agent": "FINISH",
+        "final_answer": "",
+        "planner_retries": 0,
+        "tool_results": [],
+        "plan": [],
+    }
 
 
 def _route_with_llm(state: AgentState) -> RouteDecision:

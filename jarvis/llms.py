@@ -47,6 +47,16 @@ def last_user_text(messages: list[BaseMessage] | list[Any]) -> str:
     return ""
 
 
+def since_last_human(messages: list[Any]) -> list[Any]:
+    last_human = -1
+    for i, msg in enumerate(messages):
+        if isinstance(msg, HumanMessage) or (isinstance(msg, dict) and msg.get("role") == "user"):
+            last_human = i
+    if last_human < 0:
+        return list(messages)
+    return list(messages[last_human + 1 :])
+
+
 def _normalize_math(expr: str) -> str:
     return expr.replace("x", "*").replace("×", "*")
 
@@ -141,7 +151,7 @@ class OfflineChatModel(BaseChatModel):
 
     def _plan(self, text: str, raw: Any) -> Plan:
         messages = raw if isinstance(raw, list) else []
-        tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
+        tool_msgs = [m for m in since_last_human(messages) if isinstance(m, ToolMessage)]
         if tool_msgs:
             last = str(tool_msgs[-1].content)
             if last.lower().startswith("error"):
@@ -218,7 +228,7 @@ class OfflineChatModel(BaseChatModel):
             return AIMessage(content=content)
 
         tool_names = {getattr(t, "name", "") for t in self.bound_tools}
-        tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
+        tool_msgs = [m for m in since_last_human(messages) if isinstance(m, ToolMessage)]
         if tool_msgs:
             return AIMessage(content=str(tool_msgs[-1].content))
 

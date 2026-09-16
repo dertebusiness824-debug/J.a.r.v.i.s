@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from operator import add
 from typing import Annotated, Any, Literal, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -37,7 +36,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     user_query: str
     plan: list[TaskItem]
-    tool_results: Annotated[list[ToolResult], add]
+    tool_results: list[ToolResult]
     retrieved_context: str
     next_agent: SpecialistName
     active_agent: str

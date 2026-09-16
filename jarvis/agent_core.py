@@ -26,7 +26,7 @@ def retrieve_node(state: AgentState) -> dict[str, Any]:
     """Inyecta contexto semántico en el estado antes de planificar."""
     query = state.get("user_query") or last_user_text(state.get("messages") or [])
     context = get_memory().retrieve(query)
-    return {"retrieved_context": context, "user_query": query}
+    return {"retrieved_context": context, "user_query": query, "tool_results": []}
 
 
 def _planner_messages(state: AgentState) -> list:
@@ -84,6 +84,8 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     if complete:
         updates["error"] = None if plan.is_complete else state.get("error")
         updates["messages"] = [AIMessage(content=answer or plan.reasoning)]
+        if not tasks and state.get("plan"):
+            updates["plan"] = [{**item, "status": "done"} for item in state["plan"]]
     elif not state.get("error"):
         updates["error"] = None
     return updates
@@ -136,7 +138,8 @@ def tools_node(state: AgentState) -> dict[str, Any]:
         )
         if not ok:
             error = content
-    return {"messages": new_messages, "tool_results": results, "error": error}
+    prior = list(state.get("tool_results") or [])
+    return {"messages": new_messages, "tool_results": prior + results, "error": error}
 
 
 def route_after_planner(state: AgentState) -> Literal["executor", "end"]:
@@ -217,6 +220,11 @@ def initial_state(query: str, *, active_agent: str = "general", system_prompt: s
 def extract_answer(state: AgentState) -> str:
     if state.get("final_answer"):
         return str(state["final_answer"])
+    from jarvis.llms import since_last_human
+
+    for msg in reversed(since_last_human(state.get("messages") or [])):
+        if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
+            return str(msg.content)
     for msg in reversed(state.get("messages") or []):
         if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
             return str(msg.content)

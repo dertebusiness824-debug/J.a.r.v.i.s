@@ -36,3 +36,11 @@ def test_supervisor_routes_code_list_sandbox():
     assert state.get("active_agent") == "code_agent"
     tools_used = [r["tool"] for r in state.get("tool_results") or []]
     assert "list_directory" in tools_used
+
+
+def test_same_session_reroutes_on_second_turn():
+    first = run_jarvis("¿Cuánto es 17 * 24?", session_id="same-thread")
+    assert "408" in extract_answer(first)
+    second = run_jarvis("Lista los productos de Shopify", session_id="same-thread")
+    assert second.get("active_agent") == "shop_agent"
+    assert "Auriculares Jarvis" in extract_answer(second)
