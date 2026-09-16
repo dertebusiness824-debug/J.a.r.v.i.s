@@ -164,10 +164,44 @@ class OfflineChatModel(BaseChatModel):
                 tasks=[f"Calcular {expr}"],
                 is_complete=False,
             )
-        if any(k in text.lower() for k in ("hora", "fecha", "time")):
+        lowered = text.lower()
+        if any(k in lowered for k in ("hora", "fecha", "time")):
             return Plan(
                 reasoning="Se requiere la hora actual.",
                 tasks=["Obtener fecha/hora actual"],
+                is_complete=False,
+            )
+        if any(
+            k in lowered
+            for k in ("shopify", "producto", "inventario", "pedido", "orden", "stock", "tienda")
+        ):
+            return Plan(
+                reasoning="Consulta de e-commerce: se usan las tools de Shopify.",
+                tasks=["Consultar Shopify"],
+                is_complete=False,
+            )
+        if any(k in lowered for k in ("whatsapp", "twilio", "sms", "mensaje")):
+            return Plan(
+                reasoning="Consulta de mensajería: se usan las tools de Comms.",
+                tasks=["Enviar mensaje"],
+                is_complete=False,
+            )
+        if any(
+            k in lowered
+            for k in (
+                "archivo",
+                "sandbox",
+                "directorio",
+                "código",
+                "codigo",
+                "terminal",
+                "script",
+                "python",
+            )
+        ):
+            return Plan(
+                reasoning="Consulta de filesystem/código: se usa el sandbox.",
+                tasks=["Inspeccionar sandbox"],
                 is_complete=False,
             )
         return Plan(
