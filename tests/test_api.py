@@ -1,0 +1,67 @@
+from fastapi.testclient import TestClient
+
+from jarvis.api.app import create_app
+
+
+def test_health_and_docs():
+    client = TestClient(create_app())
+    health = client.get("/health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["status"] == "ok"
+    assert "code_agent" in body["agents"]
+    assert client.get("/docs").status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_invoke_calculator():
+    client = TestClient(create_app())
+    res = client.post("/invoke", json={"message": "¿Cuánto es 17 * 24?", "session_id": "api-1"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "408" in data["answer"]
+    assert data["agent"] == "general"
+
+
+def test_whatsapp_verify_and_inbound():
+    client = TestClient(create_app())
+    verify = client.get(
+        "/webhooks/whatsapp",
+        params={"hub.mode": "subscribe", "hub.verify_token": "x", "hub.challenge": "challenge-42"},
+    )
+    assert verify.status_code == 200
+    assert verify.text == "challenge-42"
+
+    payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": "15551234567",
+                                    "id": "wamid.1",
+                                    "text": {"body": "¿Cuánto es 2 + 2?"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    inbound = client.post("/webhooks/whatsapp", json=payload)
+    assert inbound.status_code == 200
+    body = inbound.json()
+    assert body["processed"] == 1
+    assert "4" in body["replies"][0]["answer"]
+
+
+def test_twilio_inbound_xml():
+    client = TestClient(create_app())
+    res = client.post("/webhooks/twilio", data={"From": "+15550001111", "Body": "¿Cuánto es 3*3?"})
+    assert res.status_code == 200
+    assert "application/xml" in res.headers["content-type"]
+    assert "<Message>" in res.text
+    assert "9" in res.text
