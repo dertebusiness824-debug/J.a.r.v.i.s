@@ -207,10 +207,13 @@
       const researchOverlay = document.getElementById("researchOverlay");
 
       const CORE_LABEL = "J.A.R.V.I.S";
+      const UNLOCK_LABEL = "INICIAR SISTEMA";
       const TALK_IDLE =
         "reactor-core relative z-10 flex h-56 w-56 shrink-0 items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
       const TALK_LIVE =
         "reactor-core relative z-10 flex h-56 w-56 shrink-0 animate-pulse items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-white shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
+      const TALK_UNLOCK =
+        "reactor-core relative z-10 flex h-56 w-56 shrink-0 animate-pulse items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[10px] font-black tracking-[0.12em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95";
 
       const RESEARCH_TOOLS = ["web_search", "extract_social_profiles", "find_public_emails"];
       const RESEARCH_MSG_TYPES = new Set([
@@ -237,6 +240,7 @@
       let voiceBusy = false;
       let clientResearching = false;
       let serverResearching = false;
+      let needsManualStart = false;
       const netLayer = document.getElementById("netLayer");
       const NET_BASE =
         "pointer-events-none absolute inset-0 -z-10 object-cover transition-opacity duration-1000 ease-in-out";
@@ -293,9 +297,11 @@
         terminal.scrollTop = terminal.scrollHeight;
       }
 
-      function setTalk(_label, live) {
-        talkBtn.textContent = CORE_LABEL;
-        talkBtn.className = live ? TALK_LIVE : TALK_IDLE;
+      function setTalk(label, live) {
+        const text = label || CORE_LABEL;
+        talkBtn.textContent = text;
+        if (text === UNLOCK_LABEL) talkBtn.className = TALK_UNLOCK;
+        else talkBtn.className = live ? TALK_LIVE : TALK_IDLE;
       }
 
       function isResearchQuery(text) {
@@ -446,27 +452,37 @@
       }
 
       async function toggleVapiCall() {
-        if (!vapi) return startBrowserVoice();
-        if (voiceBusy) return;
-        if (inCall || isCallActive) {
-          voiceBusy = true;
-          talkStatus.textContent = "Colgando…";
-          try {
-            await vapi.stop();
-          } catch (err) {
-            log("ERROR voz " + formatError(err));
-          } finally {
-            voiceBusy = false;
-            setCallStatus("idle");
-            setTalk(CORE_LABEL, false);
-            setResearching(false);
-            talkStatus.textContent = "Llamada terminada. Pulsa el núcleo para continuar.";
-          }
-          return;
+        return startVapiCall({ auto: false });
+      }
+
+      function isGestureBlocked(err) {
+        const name = err && err.name ? String(err.name) : "";
+        const text = formatError(err).toLowerCase();
+        if (name === "NotAllowedError" || name === "SecurityError" || name === "NotFoundError") return true;
+        return /notallowed|permission|user gesture|autoplay|not allowed|denied|getusermedia|secure context/.test(
+          text
+        );
+      }
+
+      async function ensureMic() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          const err = new Error("getUserMedia no disponible");
+          err.name = "NotAllowedError";
+          throw err;
         }
-        talkStatus.textContent = "Conectando con Jarvis…";
-        setTalk("CONECTANDO", true);
-        setCallStatus("connecting");
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of stream.getTracks()) track.stop();
+      }
+
+      function armManualStart() {
+        needsManualStart = true;
+        setCallStatus("idle");
+        setTalk(UNLOCK_LABEL, true);
+        talkStatus.textContent = "Pulsa INICIAR SISTEMA para desbloquear el audio.";
+        log("SISTEMA: Requiere interacción manual para desbloquear canales de audio.");
+      }
+
+      async function connectVapiSession() {
         const llmModel = voiceCfg.custom_llm_model || {
           provider: "custom-llm",
           url: voiceCfg.custom_llm_url,
@@ -490,17 +506,54 @@
           transcriber,
           voice,
         };
+        let call = await vapi.start(assistant);
+        if (!call && voiceCfg.vapi_assistant_id) {
+          call = await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
+        }
+        if (!call) {
+          throw new Error(lastVapiError || "Vapi no inició la llamada.");
+        }
+        return call;
+      }
+
+      async function startVapiCall({ auto } = {}) {
+        if (!vapi) {
+          if (auto) {
+            armManualStart();
+            return;
+          }
+          return startBrowserVoice();
+        }
+        if (voiceBusy) return;
+        if (inCall || isCallActive) {
+          voiceBusy = true;
+          talkStatus.textContent = "Colgando…";
+          try {
+            await vapi.stop();
+          } catch (err) {
+            log("ERROR voz " + formatError(err));
+          } finally {
+            voiceBusy = false;
+            setCallStatus("idle");
+            setTalk(CORE_LABEL, false);
+            setResearching(false);
+            talkStatus.textContent = "Llamada terminada. Pulsa el núcleo para continuar.";
+          }
+          return;
+        }
+        talkStatus.textContent = auto ? "Iniciando canales de voz…" : "Conectando con Jarvis…";
+        setTalk(CORE_LABEL, true);
+        setCallStatus("connecting");
         voiceBusy = true;
         try {
-          // El SDK 2.6 devuelve null si falla (no lanza). HABLAR no usa la URL del dashboard.
-          let call = await vapi.start(assistant);
-          if (!call && voiceCfg.vapi_assistant_id) {
-            call = await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
-          }
-          if (!call) {
-            throw new Error(lastVapiError || "Vapi no inició la llamada.");
-          }
+          await ensureMic();
+          await connectVapiSession();
+          needsManualStart = false;
         } catch (err) {
+          if (auto || isGestureBlocked(err)) {
+            armManualStart();
+            return;
+          }
           setCallStatus("idle");
           setTalk(CORE_LABEL, false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
@@ -552,7 +605,8 @@
               handleVapiMessage(msg);
             });
             talkMode = "vapi";
-            talkStatus.textContent = "Pulsa J.A.R.V.I.S para una llamada de voz.";
+            talkStatus.textContent = "Iniciando canales de voz…";
+            await startVapiCall({ auto: true });
             return;
           } catch (err) {
             log("SDK de Vapi no cargó. " + formatError(err));
@@ -626,7 +680,7 @@
               if (d < link) {
                 const alpha = (isResearching() ? 0.95 : 0.55) * (1 - d / link);
                 ctx.strokeStyle = `rgba(249, 115, 22, ${alpha})`;
-                ctx.lineWidth = isResearching ? 1.4 : 1;
+                ctx.lineWidth = isResearching() ? 1.4 : 1;
                 ctx.beginPath();
                 ctx.moveTo(a.x, a.y);
                 ctx.lineTo(b.x, b.y);
