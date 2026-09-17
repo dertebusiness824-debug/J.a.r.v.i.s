@@ -228,10 +228,38 @@ def run_terminal(command: str) -> str:
 
 @tool("send_whatsapp_message", args_schema=SendWhatsAppInput)
 def send_whatsapp_message(to: str, body: str) -> str:
-    """Envía WhatsApp vía el puente local whatsapp-web.js (POST http://127.0.0.1:3000/send)."""
-    from jarvis.integrations.messaging import WhatsAppClient
+    """Envía WhatsApp vía el puente local: POST http://127.0.0.1:3000/send."""
+    import json
 
-    return WhatsAppClient().send_text(to=to, body=body)
+    import requests
+
+    from jarvis.integrations.messaging import to_whatsapp_id
+
+    payload = {"to": to_whatsapp_id(to), "message": body}
+    try:
+        response = requests.post("http://127.0.0.1:3000/send", json=payload, timeout=20)
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"raw": response.text}
+        if isinstance(data, dict):
+            data.setdefault("channel", "whatsapp-web")
+            data.setdefault("to", payload["to"])
+            return json.dumps(data, ensure_ascii=False)
+        return json.dumps({"channel": "whatsapp-web", "result": data}, ensure_ascii=False)
+    except requests.RequestException as exc:
+        return json.dumps(
+            {
+                "mode": "demo",
+                "channel": "whatsapp-web",
+                "to": payload["to"],
+                "body": body,
+                "status": "queued",
+                "error": f"puente no disponible: {exc}",
+            },
+            ensure_ascii=False,
+        )
 
 
 @tool("send_zadarma_sms", args_schema=SendZadarmaSmsInput)

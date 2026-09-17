@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
+import requests
 
 from jarvis.config import get_settings
 
@@ -36,20 +36,19 @@ class WhatsAppClient:
         url = f"{self.settings.whatsapp_bridge_url.rstrip('/')}/send"
         payload = {"to": chat_id, "message": body}
         try:
-            with httpx.Client(timeout=20.0) as client:
-                response = client.post(url, json=payload)
-                response.raise_for_status()
-                try:
-                    data = response.json()
-                except json.JSONDecodeError:
-                    data = {"raw": response.text}
-        except httpx.HTTPStatusError as exc:
+            response = requests.post(url, json=payload, timeout=20)
+            response.raise_for_status()
+            try:
+                data = response.json()
+            except ValueError:
+                data = {"raw": response.text}
+        except requests.HTTPError as exc:
             detail = exc.response.text if exc.response is not None else str(exc)
             return json.dumps(
                 {"ok": False, "channel": "whatsapp-web", "to": chat_id, "error": detail},
                 ensure_ascii=False,
             )
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as exc:
+        except requests.RequestException as exc:
             return json.dumps(
                 {
                     "mode": "demo",

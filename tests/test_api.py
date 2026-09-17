@@ -77,6 +77,10 @@ def test_whatsapp_verify_and_inbound():
 
 def test_whatsapp_local_bridge_inbound():
     client = TestClient(create_app())
+    ping = client.get("/webhooks/whatsapp-local")
+    assert ping.status_code == 200
+    assert ping.json()["ok"] is True
+
     res = client.post(
         "/webhooks/whatsapp-local",
         json={"from": "15551234567@c.us", "body": "¿Cuánto es 2 + 2?"},
@@ -84,9 +88,20 @@ def test_whatsapp_local_bridge_inbound():
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
-    assert body["processed"] == 1
+    assert body["queued"] is True
     assert body["channel"] == "whatsapp-web"
-    assert "4" in body["answer"]
+
+
+def test_whatsapp_local_on_uvicorn_app():
+    from jarvis.api.main import app as uvicorn_app
+
+    client = TestClient(uvicorn_app)
+    res = client.post(
+        "/webhooks/whatsapp-local",
+        json={"from": "15551234567@c.us", "body": "ping"},
+    )
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
 
 
 def test_twilio_webhook_removed():

@@ -1,12 +1,24 @@
-"""Punto de entrada ASGI: `uvicorn jarvis.api.main:app --host 0.0.0.0 --port $PORT`.
+"""Punto de entrada ASGI: `uvicorn jarvis.api.main:app --host 0.0.0.0 --port 8000`.
 
-CORS (allow_origins/methods/headers = *) se aplica en `create_app()` sobre esta instancia,
-para que Vapi y los webhooks de telefonía no encuentren bloqueos de origen.
-
-Webhooks de WhatsApp Web (puente Node en :3000): `POST /webhooks/whatsapp-local`.
+CORS (allow_origins/methods/headers = *) se aplica en `create_app()` sobre esta instancia.
+El puente WhatsApp Web hace POST a `/webhooks/whatsapp-local` (BackgroundTasks → Supervisor).
 """
+
+from fastapi import BackgroundTasks, Request
 
 from jarvis.api.app import app
 from jarvis.api.vapi_routes import router as vapi_router
+from jarvis.api.whatsapp_local import attach_whatsapp_local_webhook, process_whatsapp_message
+from jarvis.supervisor import run_jarvis
 
-__all__ = ["app", "vapi_router"]
+# Garantiza el webhook en la instancia que carga uvicorn (`jarvis.api.main:app`).
+attach_whatsapp_local_webhook(app)
+
+__all__ = [
+    "app",
+    "vapi_router",
+    "Request",
+    "BackgroundTasks",
+    "run_jarvis",
+    "process_whatsapp_message",
+]
