@@ -3,210 +3,245 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Jarvis v2.0</title>
+    <title>J.A.R.V.I.S. · Neural Core</title>
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #070b12;
-        --panel: #101826;
-        --line: #1f2a3d;
-        --text: #e7eefc;
-        --muted: #8aa0c4;
-        --accent: #3ee0c5;
-        --warn: #ffb020;
+        --bg: #070201;
+        --panel: rgba(28, 8, 4, 0.78);
+        --line: #5a1c0c;
+        --text: #ffd7c2;
+        --muted: #c07a5c;
+        --accent: #ff6a22;
+        --hot: #ff2d12;
+        --glow: 0 0 18px rgba(255, 80, 20, 0.45);
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
       body {
-        margin: 0;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        background: radial-gradient(1200px 600px at 10% -10%, #143047 0%, var(--bg) 45%);
+        font-family: "Share Tech Mono", "Consolas", monospace;
         color: var(--text);
-        min-height: 100vh;
+        background: radial-gradient(900px 500px at 70% 10%, #3a1208 0%, var(--bg) 55%);
+        overflow: hidden;
       }
-      main {
-        max-width: 860px;
-        margin: 0 auto;
-        padding: 32px 20px 64px;
+      canvas#net {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
       }
-      h1 {
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        font-size: 14px;
-        color: var(--accent);
-        margin: 0 0 8px;
-      }
-      p.lead { margin: 0 0 24px; color: var(--muted); }
-      form {
+      .hud {
+        position: relative;
+        z-index: 1;
         display: grid;
+        grid-template-columns: 260px 1fr;
+        grid-template-rows: auto 1fr auto;
+        height: 100%;
         gap: 12px;
+        padding: 16px;
+      }
+      header {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 8px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: 0.28em;
+        color: var(--accent);
+        text-shadow: var(--glow);
+      }
+      header .status { color: var(--hot); font-size: 12px; }
+      aside, .core {
         background: var(--panel);
         border: 1px solid var(--line);
-        padding: 16px;
-        border-radius: 12px;
+        box-shadow: var(--glow);
+        border-radius: 4px;
+        padding: 14px;
       }
-      textarea, input {
-        width: 100%;
-        background: #0b1220;
+      aside h2, .core h2 {
+        margin: 0 0 12px;
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .counter {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px dashed #4a180c;
+        font-size: 14px;
+      }
+      .counter b { color: var(--hot); font-size: 20px; }
+      .core {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+      }
+      #terminal {
+        margin: 0;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #ffb089;
+        min-height: 0;
+      }
+      .command {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+      }
+      #commandInput {
+        flex: 1;
+        background: #140704;
         color: var(--text);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 10px 12px;
+        border: 1px solid var(--accent);
+        padding: 12px 14px;
         font: inherit;
+        outline: none;
       }
-      textarea { min-height: 90px; resize: vertical; }
       button {
-        justify-self: start;
-        background: var(--accent);
-        color: #04231c;
+        background: linear-gradient(180deg, #ff7a2a, #c32210);
+        color: #1a0602;
         border: 0;
-        border-radius: 8px;
-        padding: 10px 16px;
+        font: inherit;
         font-weight: 700;
+        letter-spacing: 0.12em;
+        padding: 0 18px;
         cursor: pointer;
       }
       button:disabled { opacity: 0.5; cursor: wait; }
-      pre {
-        white-space: pre-wrap;
-        background: #0b1220;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 16px;
-        min-height: 160px;
-      }
-      .row { display: flex; gap: 8px; flex-wrap: wrap; }
-      button.ghost {
-        background: transparent;
-        color: var(--accent);
-        border: 1px solid var(--accent);
-      }
-      .spoken {
-        font-size: 18px;
-        line-height: 1.45;
-        min-height: 72px;
-      }
-
     </style>
   </head>
   <body>
-    <main>
-      <h1>Jarvis v2.0 · Supervisor</h1>
-      <p class="lead">Delegación a Code, Comms, Shop o General. Escribe en español.</p>
-      <form id="f">
-        <label>
-          Sesión
-          <input id="session" value="ui-demo" />
-        </label>
-        <label>
-          Prompt
-          <textarea id="message">¿Cuánto es 17 * 24?</textarea>
-        </label>
-        <div class="row">
-          <button type="submit" id="go">Ejecutar</button>
-          <button type="button" class="ghost" id="voice">Simular voz</button>
-          <button type="button" class="ghost" id="mic">Micrófono</button>
-        </div>
+    <canvas id="net"></canvas>
+    <div class="hud">
+      <header>
+        <h1>JARVIS NEURAL CORE</h1>
+        <span class="status" id="link">SISTEMAS EN LÍNEA</span>
+      </header>
+      <aside>
+        <h2>Bandeja de entrada</h2>
+        <div class="counter">WhatsApp <b id="countWa">0</b></div>
+        <div class="counter">Correo <b id="countMail">0</b></div>
+        <div class="counter">Total <b id="countTotal">0</b></div>
+      </aside>
+      <section class="core">
+        <h2>Terminal del Supervisor</h2>
+        <pre id="terminal">J.A.R.V.I.S. listo. Emita una directiva, maestro.</pre>
+      </section>
+      <form class="command" id="directiveForm">
+        <input id="commandInput" autocomplete="off" placeholder="Directiva para el Supervisor…" />
+        <button type="submit" id="send">ENVIAR</button>
       </form>
-      <p class="meta">Voz (Vapi Custom LLM → Cartesia/TTS) <span id="agent" class="badge"></span></p>
-      <pre id="spoken" class="spoken">Sistema listo. Dime en qué te ayudo.</pre>
-      <p class="meta">JSON técnico</p>
-      <pre id="out">Listo.</pre>
-    </main>
+    </div>
     <script>
-      const form = document.getElementById("f");
-      const out = document.getElementById("out");
-      const agent = document.getElementById("agent");
-      const spoken = document.getElementById("spoken");
-      const voiceBtn = document.getElementById("voice");
-      const micBtn = document.getElementById("mic");
-      const go = document.getElementById("go");
+      const terminal = document.getElementById("terminal");
+      const input = document.getElementById("commandInput");
+      const send = document.getElementById("send");
+      const countWa = document.getElementById("countWa");
+      const countMail = document.getElementById("countMail");
+      const countTotal = document.getElementById("countTotal");
 
-      function speak(text) {
-        spoken.textContent = text;
-        if (!window.speechSynthesis) return;
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = "es-ES";
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utter);
+      function log(line) {
+        terminal.textContent += "\n" + line;
+        terminal.scrollTop = terminal.scrollHeight;
       }
 
-      async function invokeVoice(text) {
-        const res = await fetch("/webhooks/vapi-llm", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: document.getElementById("session").value,
-            messages: [
-              { role: "system", content: "voice" },
-              { role: "user", content: text },
-            ],
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        const line = data.choices?.[0]?.message?.content || "Sin respuesta.";
-        speak(line);
-        return data;
-      }
-
-      voiceBtn.addEventListener("click", async () => {
-        voiceBtn.disabled = true;
-        spoken.textContent = "Escuchando al Supervisor…";
+      async function refreshInbox() {
         try {
-          await invokeVoice(document.getElementById("message").value);
-        } catch (err) {
-          spoken.textContent = String(err);
-        } finally {
-          voiceBtn.disabled = false;
+          const res = await fetch("/api/jarvis/inbox-status");
+          const data = await res.json();
+          countWa.textContent = data.whatsapp ?? 0;
+          countMail.textContent = data.correo ?? 0;
+          countTotal.textContent = data.total ?? 0;
+        } catch (_err) {
+          document.getElementById("link").textContent = "ENLACE INESTABLE";
         }
-      });
+      }
 
-      micBtn.addEventListener("click", () => {
-        const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Rec) {
-          spoken.textContent = "Este navegador no expone reconocimiento de voz. Usa Simular voz.";
-          return;
-        }
-        const rec = new Rec();
-        rec.lang = "es-ES";
-        rec.onresult = async (event) => {
-          const text = event.results[0][0].transcript;
-          document.getElementById("message").value = text;
-          spoken.textContent = "Te escuché. Procesando…";
-          try {
-            await invokeVoice(text);
-          } catch (err) {
-            spoken.textContent = String(err);
-          }
-        };
-        rec.start();
-        spoken.textContent = "Habla ahora…";
-      });
-
-      form.addEventListener("submit", async (event) => {
+      document.getElementById("directiveForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        go.disabled = true;
-        out.textContent = "Procesando…";
-        agent.textContent = "";
+        const command = input.value.trim();
+        if (!command) return;
+        send.disabled = true;
+        log("> " + command);
+        input.value = "";
         try {
-          const res = await fetch("/invoke", {
+          const res = await fetch("/api/jarvis/directive", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: document.getElementById("message").value,
-              session_id: document.getElementById("session").value,
-            }),
+            body: JSON.stringify({ command, session_id: "hud" }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || res.statusText);
-          agent.textContent = data.agent ? `· ${data.agent}` : "";
-          out.textContent = JSON.stringify(data, null, 2);
+          (data.lines || [data.answer]).slice(1).forEach(log);
         } catch (err) {
-          out.textContent = String(err);
+          log("ERROR " + err);
         } finally {
-          go.disabled = false;
+          send.disabled = false;
+          input.focus();
         }
       });
+
+      function neural() {
+        const canvas = document.getElementById("net");
+        const ctx = canvas.getContext("2d");
+        const nodes = [];
+        function resize() {
+          canvas.width = innerWidth;
+          canvas.height = innerHeight;
+        }
+        resize();
+        addEventListener("resize", resize);
+        for (let i = 0; i < 58; i++) {
+          nodes.push({
+            x: Math.random() * innerWidth,
+            y: Math.random() * innerHeight,
+            vx: (Math.random() - 0.5) * 0.45,
+            vy: (Math.random() - 0.5) * 0.45,
+          });
+        }
+        function tick() {
+          ctx.fillStyle = "rgba(7, 2, 1, 0.28)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          for (const n of nodes) {
+            n.x += n.vx; n.y += n.vy;
+            if (n.x < 0 || n.x > canvas.width) n.vx *= -1;
+            if (n.y < 0 || n.y > canvas.height) n.vy *= -1;
+          }
+          for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+              const a = nodes[i], b = nodes[j];
+              const d = Math.hypot(a.x - b.x, a.y - b.y);
+              if (d < 140) {
+                ctx.strokeStyle = `rgba(255, 70, 20, ${1 - d / 140})`;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+              }
+            }
+          }
+          for (const n of nodes) {
+            ctx.fillStyle = "#ff4d1a";
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          requestAnimationFrame(tick);
+        }
+        tick();
+      }
+
+      neural();
+      refreshInbox();
+      setInterval(refreshInbox, 4000);
+      input.focus();
     </script>
   </body>
 </html>

@@ -29,6 +29,34 @@ def test_health_and_docs():
     assert "code_agent" in body["agents"]
     assert client.get("/docs").status_code == 200
     assert client.get("/").status_code == 200
+    hud = client.get("/")
+    assert "commandInput" in hud.text
+    assert "NEURAL CORE" in hud.text
+
+
+def test_directive_and_inbox_status():
+    client = TestClient(create_app())
+    empty = client.get("/api/jarvis/inbox-status")
+    assert empty.status_code == 200
+    assert empty.json()["whatsapp"] == 0
+    assert empty.json()["correo"] == 0
+
+    client.post("/webhooks/whatsapp-local", json={"from": "34911@c.us", "body": "cita"})
+    from jarvis.db import guardar_mensaje
+
+    guardar_mensaje("gmail", "ana@x.com", "factura")
+    counts = client.get("/api/jarvis/inbox-status").json()
+    assert counts["whatsapp"] == 1
+    assert counts["correo"] == 1
+    assert counts["total"] == 2
+
+    res = client.post("/api/jarvis/directive", json={"command": "¿Cuánto es 17 * 24?", "session_id": "hud-1"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert "408" in body["answer"]
+    assert body["lines"][0].startswith(">")
+    assert "408" in body["lines"][1]
 
 
 def test_invoke_calculator():

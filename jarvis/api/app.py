@@ -12,7 +12,16 @@ from fastapi.staticfiles import StaticFiles
 
 from jarvis import __version__
 from jarvis.agent_core import extract_answer
-from jarvis.api.schemas import HealthResponse, InvokeRequest, InvokeResponse, TaskOut, ToolResultOut
+from jarvis.api.schemas import (
+    DirectiveRequest,
+    HealthResponse,
+    InboxStatusResponse,
+    InvokeRequest,
+    InvokeResponse,
+    TaskOut,
+    ToolResultOut,
+)
+from jarvis.db import inbox_status, init_db
 from jarvis.config import get_settings
 from jarvis.api.vapi_routes import router as vapi_router
 from jarvis.integrations.messaging import WhatsAppClient
@@ -20,7 +29,6 @@ from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
 from jarvis.api.whatsapp_local import attach_whatsapp_local_webhook
 from jarvis.api.vapi_events import attach_vapi_events
-from jarvis.db import init_db
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -86,6 +94,31 @@ def create_app() -> FastAPI:
             error=result.get("error"),
             offline=settings.offline,
         )
+
+    @app.post("/api/jarvis/directive", tags=["hud"])
+    def jarvis_directive(payload: DirectiveRequest) -> dict:
+        text = payload.text()
+        if not text:
+            raise HTTPException(status_code=400, detail="Falta command o message.")
+        settings = get_settings()
+        result = run_jarvis(text, session_id=payload.session_id or "hud")
+        answer = extract_answer(result)
+        agent = str(result.get("active_agent") or result.get("next_agent") or "supervisor")
+        return {
+            "ok": True,
+            "answer": answer,
+            "agent": agent,
+            "visited_agents": list(result.get("visited_agents") or []),
+            "plan": [TaskOut(**t).model_dump() for t in (result.get("plan") or [])],
+            "tool_results": [ToolResultOut(**r).model_dump() for r in (result.get("tool_results") or [])],
+            "error": result.get("error"),
+            "offline": settings.offline,
+            "lines": [f"> {text}", f"[{agent}] {answer}"],
+        }
+
+    @app.get("/api/jarvis/inbox-status", response_model=InboxStatusResponse, tags=["hud"])
+    def jarvis_inbox_status() -> InboxStatusResponse:
+        return InboxStatusResponse(**inbox_status())
 
     @app.get("/webhooks/whatsapp", tags=["webhooks"])
     def whatsapp_verify(

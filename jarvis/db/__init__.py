@@ -135,6 +135,24 @@ def formatear_briefing(mensajes: list[MensajeEntrante]) -> str:
     )
 
 
+def inbox_status() -> dict[str, Any]:
+    """Contadores de bandeja no leída para el HUD (no marca como leídos)."""
+    pendientes = listar_no_leidos()
+    counts = Counter(m.plataforma for m in pendientes)
+    gmail = int(counts.get("gmail") or 0)
+    webmail = int(counts.get("webmail") or 0)
+    whatsapp = int(counts.get("whatsapp") or 0)
+    correo = gmail + webmail
+    return {
+        "whatsapp": whatsapp,
+        "correo": correo,
+        "gmail": gmail,
+        "webmail": webmail,
+        "total": len(pendientes),
+        "pending": len(pendientes),
+    }
+
+
 def briefing_inicial(*, marcar: bool = True) -> dict[str, Any]:
     pendientes = listar_no_leidos()
     spoken = formatear_briefing(pendientes)

@@ -94,7 +94,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `POST /webhooks/whatsapp-local` (guarda en bandeja), `POST /api/jarvis/vapi-events` (Server URL Vapi / assistant-request), `GET|POST /webhooks/whatsapp`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`. El puente Node expone `POST http://127.0.0.1:3000/send`.
+Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`. CORS: `allow_origins=["*"]`.
 
 ## Producción (Railway / Render)
 

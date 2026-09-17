@@ -1,8 +1,7 @@
 """Punto de entrada ASGI: `uvicorn jarvis.api.main:app --host 0.0.0.0 --port 8000`.
 
-CORS (allow_origins/methods/headers = *) se aplica en `create_app()` sobre esta instancia.
-WhatsApp local: POST /webhooks/whatsapp-local guarda en la bandeja SQLite.
-Vapi Server URL: POST /api/jarvis/vapi-events (evento assistant-request → firstMessage).
+CORS (allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]) se aplica en `create_app()`.
+HUD Neural Core: GET `/` (estáticos). Órdenes: POST `/api/jarvis/directive`. Bandeja: GET `/api/jarvis/inbox-status`.
 """
 
 from fastapi import Request
