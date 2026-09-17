@@ -1,0 +1,43 @@
+"""Esquemas Pydantic de la API Jarvis."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class InvokeRequest(BaseModel):
+    message: str = Field(min_length=1, description="Prompt del usuario.")
+    session_id: str = Field(default="default", description="Hilo de conversación (checkpointer).")
+
+
+class ToolResultOut(BaseModel):
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    output: str
+    ok: bool = True
+
+
+class TaskOut(BaseModel):
+    id: str | None = None
+    description: str | None = None
+    status: str | None = None
+    assignee: str | None = None
+
+
+class InvokeResponse(BaseModel):
+    answer: str
+    agent: str
+    plan: list[TaskOut] = Field(default_factory=list)
+    tool_results: list[ToolResultOut] = Field(default_factory=list)
+    retrieved_context: str = ""
+    error: str | None = None
+    offline: bool = False
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    offline: bool
+    agents: list[str]
