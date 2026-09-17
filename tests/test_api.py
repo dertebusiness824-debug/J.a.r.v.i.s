@@ -102,6 +102,34 @@ def test_health_and_docs():
     assert "Requiere interacción manual para desbloquear canales de audio" in hud.text
     assert "startVapiCall" in hud.text
     assert "auto: true" in hud.text
+    # Núcleo tipo reactor/radar: degradado verde, anillos concéntricos y barrido.
+    assert "radial-gradient(circle at 50% 42%" in hud.text
+    assert "rgba(6, 78, 59, 0.44)" in hud.text
+    assert "conic-gradient" in hud.text
+    assert "radar-sweep" in hud.text
+    assert "animate-[spin_6s_linear_infinite]" in hud.text
+    # Los anillos giran con `animate-[spin_...]`: sin estos keyframes propios se
+    # quedarían quietos si el CDN de Tailwind deja de emitirlos.
+    assert "@keyframes spin" in hud.text
+    assert "bg-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.9)]" in hud.text
+    assert hud.text.count("border-green-500/20") >= 2
+    assert "border-2 border-dashed border-green-500/40 animate-[spin_10s_linear_infinite]" in hud.text
+    # El texto del núcleo va en su propio span (los anillos no se pisan al cambiar de estado).
+    assert 'id="coreLabel"' in hud.text
+    assert "font-mono text-[11px] font-black tracking-[0.4em] text-green-400" in hud.text
+    assert "drop-shadow-[0_0_14px_rgba(34,197,94,0.9)]" in hud.text
+    assert "talkBtn.textContent" not in hud.text
+    # Prompt de consola con cursor parpadeante justo detrás del log.
+    assert 'id="terminalCaret"' in hud.text
+    assert "animate-caret inline-block h-4 w-2 bg-green-500" in hud.text
+    assert "@keyframes caret" in hud.text
+    assert "supervisor@jarvis:~$" in hud.text
+    assert 'id="terminalText"' in hud.text
+    assert "terminalText.textContent = terminalMessages.join" in hud.text
+    assert "terminal.textContent" not in hud.text
+    # Contadores de la bandeja en cajas de panel de mandos.
+    assert hud.text.count("rounded-sm border border-green-500/30 bg-green-900/20") == 3
+    assert hud.text.count("font-mono text-3xl font-black text-green-400") == 3
 
 
 def test_directive_and_inbox_status():
