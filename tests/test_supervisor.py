@@ -110,3 +110,6 @@ def test_supervisor_routes_research_osint(monkeypatch):
     assert "research_agent" in (state.get("visited_agents") or [])
     answer = extract_answer(state)
     assert "Ada" in answer or "demo" in answer.lower() or "información" in answer.lower()
+    from jarvis.hud_live import is_researching
+
+    assert is_researching() is False

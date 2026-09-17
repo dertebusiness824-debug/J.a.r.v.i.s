@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Inter:wght@400;500;600;700&family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap"
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,16 +19,25 @@
           extend: {
             fontFamily: {
               sans: ["Inter", "Roboto", "ui-sans-serif", "system-ui", "sans-serif"],
-              mono: ["Fira Code", "Courier New", "ui-monospace", "monospace"],
+              mono: ["Fira Code", "Share Tech Mono", "Courier New", "ui-monospace", "monospace"],
+              hud: ["Orbitron", "Share Tech Mono", "Fira Code", "monospace"],
             },
             keyframes: {
               breath: {
                 "0%, 100%": { opacity: "0.45" },
                 "50%": { opacity: "1" },
               },
+              glitch: {
+                "0%, 100%": { transform: "translate(0)", opacity: "1" },
+                "20%": { transform: "translate(-2px, 1px)", opacity: "0.82" },
+                "40%": { transform: "translate(2px, -1px)", opacity: "1" },
+                "60%": { transform: "translate(-1px, -2px)", opacity: "0.9" },
+                "80%": { transform: "translate(1px, 2px)", opacity: "1" },
+              },
             },
             animation: {
               breath: "breath 2.4s ease-in-out infinite",
+              glitch: "glitch 1.8s steps(2, end) infinite",
             },
           },
         },
@@ -39,7 +48,27 @@
         0%, 100% { opacity: 0.45; }
         50% { opacity: 1; }
       }
+      @keyframes glitch {
+        0%, 100% { transform: translate(0); opacity: 1; text-shadow: 0 0 8px rgba(249,115,22,0.9); }
+        20% { transform: translate(-2px, 1px); opacity: 0.8; }
+        40% { transform: translate(2px, -1px); opacity: 1; }
+        60% { transform: translate(-1px, -2px); opacity: 0.88; }
+        80% { transform: translate(1px, 2px); opacity: 1; }
+      }
       .animate-breath { animation: breath 2.4s ease-in-out infinite; }
+      .animate-glitch { animation: glitch 1.8s steps(2, end) infinite; }
+      .scanlines {
+        background-image: repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0) 0px,
+          rgba(0, 0, 0, 0) 2px,
+          rgba(249, 115, 22, 0.05) 2px,
+          rgba(249, 115, 22, 0.05) 3px
+        );
+      }
+      .reactor-core {
+        background: radial-gradient(circle at center, rgba(249, 115, 22, 0.38) 0%, rgba(8, 4, 0, 0.98) 68%);
+      }
     </style>
   </head>
   <body class="relative isolate min-h-dvh overflow-x-hidden bg-black font-sans text-white antialiased">
@@ -47,6 +76,7 @@
       id="netLayer"
       data-call-status="idle"
       data-call-state="idle"
+      data-researching="0"
       class="pointer-events-none absolute inset-0 -z-10 object-cover opacity-10 transition-opacity duration-1000 ease-in-out"
     >
       <canvas id="net" class="h-full w-full object-cover"></canvas>
@@ -57,62 +87,88 @@
       style="background: radial-gradient(ellipse at center, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.38) 55%, rgba(0,0,0,0.55) 100%);"
     ></div>
 
+    <div
+      id="researchOverlay"
+      class="pointer-events-none absolute inset-0 z-20 hidden items-center justify-center bg-black/35"
+    >
+      <p
+        id="researchBanner"
+        class="animate-glitch px-4 text-center font-mono text-xl font-black tracking-[0.35em] text-orange-500 drop-shadow-[0_0_18px_rgba(249,115,22,0.85)] md:text-3xl"
+      >
+        ACCEDIENDO A LA RED GLOBAL...
+      </p>
+    </div>
+
     <div class="relative z-10 mx-auto flex min-h-dvh w-full max-w-3xl flex-col md:max-w-5xl">
       <header class="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
         <div>
-          <h1 class="text-sm font-semibold tracking-[0.28em] text-orange-500 md:text-base">
+          <h1 class="font-hud text-sm font-black tracking-[0.28em] text-orange-500 md:text-base">
             JARVIS NEURAL CORE
           </h1>
-          <p class="mt-1 text-xs text-gray-400">Supervisor multi-agente · voz y texto</p>
+          <p class="mt-1 text-xs tracking-widest text-gray-400">Supervisor multi-agente · voz y texto</p>
         </div>
-        <span id="link" class="text-[10px] font-medium uppercase tracking-widest text-orange-400">
+        <span id="link" class="font-mono text-[10px] font-medium uppercase tracking-widest text-orange-400">
           SISTEMAS EN LÍNEA
         </span>
       </header>
 
       <main class="flex flex-1 flex-col gap-4 p-4 pb-2 md:grid md:grid-cols-[240px_1fr] md:grid-rows-[auto_1fr]">
-        <aside class="rounded-2xl border border-orange-500/20 bg-black/40 p-4 shadow-xl backdrop-blur-md md:row-span-2">
-          <h2 class="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-500">
+        <aside
+          id="inboxPanel"
+          class="hud-panel scanlines border-t border-l border-orange-500/50 bg-black/80 p-4 backdrop-blur-md md:row-span-2"
+        >
+          <h2 class="mb-3 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-orange-500">
             Bandeja de entrada
           </h2>
           <p class="mb-3 text-xs text-gray-400">Mensajes pendientes, sin marcar como leídos.</p>
           <div class="grid grid-cols-3 gap-2 md:grid-cols-1 md:gap-3">
-            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
-              <span class="text-xs text-gray-400">WhatsApp</span>
-              <b id="countWa" class="text-lg font-semibold text-white">0</b>
+            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+              <span class="text-xs uppercase tracking-widest text-gray-400">WhatsApp</span>
+              <b id="countWa" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
             </div>
-            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
-              <span class="text-xs text-gray-400">Correo</span>
-              <b id="countMail" class="text-lg font-semibold text-white">0</b>
+            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+              <span class="text-xs uppercase tracking-widest text-gray-400">Correo</span>
+              <b id="countMail" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
             </div>
-            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
-              <span class="text-xs text-gray-400">Total</span>
-              <b id="countTotal" class="text-lg font-semibold text-orange-500">0</b>
+            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+              <span class="text-xs uppercase tracking-widest text-gray-400">Total</span>
+              <b id="countTotal" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
             </div>
           </div>
         </aside>
 
-        <section class="flex flex-col items-center justify-center rounded-2xl border border-orange-500/20 bg-black/40 px-4 py-6 shadow-xl backdrop-blur-md">
-          <button
-            type="button"
-            id="talkBtn"
-            class="flex h-32 w-32 shrink-0 items-center justify-center rounded-full border border-orange-400/30 bg-gradient-to-br from-orange-500 to-red-600 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] transition active:scale-95 md:h-36 md:w-36"
-          >
-            HABLAR
-          </button>
-          <p id="talkStatus" class="mt-4 max-w-xs text-center text-sm text-gray-400">
-            Pulsa HABLAR para conversar con Jarvis.
+        <section
+          id="corePanel"
+          class="relative flex flex-col items-center justify-center border-t border-l border-orange-500/50 bg-black/50 px-4 py-6 backdrop-blur-md"
+        >
+          <div class="relative flex h-56 w-56 items-center justify-center">
+            <div
+              class="pointer-events-none absolute inset-0 rounded-full border border-dashed border-orange-500/50 animate-[spin_10s_linear_infinite]"
+            ></div>
+            <button
+              type="button"
+              id="talkBtn"
+              class="reactor-core relative z-10 flex h-56 w-56 shrink-0 items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs"
+            >
+              J.A.R.V.I.S
+            </button>
+          </div>
+          <p id="talkStatus" class="mt-4 max-w-xs text-center font-mono text-sm tracking-wide text-gray-400">
+            Pulsa J.A.R.V.I.S para conversar.
           </p>
         </section>
 
-        <section class="flex min-h-0 flex-col rounded-2xl border border-orange-500/20 bg-black/40 p-4 shadow-xl backdrop-blur-md">
-          <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-500">
+        <section
+          id="terminalPanel"
+          class="hud-panel flex min-h-0 flex-col border-t border-l border-orange-500/50 bg-black/80 p-4 backdrop-blur-md"
+        >
+          <h2 class="mb-2 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-orange-500">
             Terminal del Supervisor
           </h2>
           <pre
             id="terminal"
             class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-orange-100/90"
-          >J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.</pre>
+          >J.A.R.V.I.S. listo. Pulsa el núcleo o escribe una directiva.</pre>
         </section>
       </main>
 
@@ -124,10 +180,10 @@
           id="commandInput"
           autocomplete="off"
           placeholder="Escribe una directiva… ¿Cuánto es 17 * 24?"
-          class="min-w-0 flex-1 rounded-xl border border-orange-500/20 bg-black/40 px-4 py-2 text-sm text-white placeholder:text-gray-500 backdrop-blur-md outline-none focus:border-orange-500/60"
+          class="min-w-0 flex-1 border-t border-l border-orange-500/50 bg-black/40 px-4 py-2 font-mono text-sm text-white placeholder:text-gray-500 backdrop-blur-md outline-none focus:border-orange-500/60"
         />
         <button
-          class="shrink-0 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold tracking-wide text-black"
+          class="shrink-0 border-t border-l border-orange-500 bg-orange-500 px-4 py-2 font-hud text-sm font-black tracking-wide text-black"
           type="submit"
           id="send"
         >
@@ -146,11 +202,30 @@
       const countWa = document.getElementById("countWa");
       const countMail = document.getElementById("countMail");
       const countTotal = document.getElementById("countTotal");
+      const inboxPanel = document.getElementById("inboxPanel");
+      const terminalPanel = document.getElementById("terminalPanel");
+      const researchOverlay = document.getElementById("researchOverlay");
 
+      const CORE_LABEL = "J.A.R.V.I.S";
       const TALK_IDLE =
-        "flex h-32 w-32 shrink-0 items-center justify-center rounded-full border border-orange-400/30 bg-gradient-to-br from-orange-500 to-red-600 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] transition active:scale-95 md:h-36 md:w-36";
+        "reactor-core relative z-10 flex h-56 w-56 shrink-0 items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
       const TALK_LIVE =
-        "flex h-32 w-32 shrink-0 animate-pulse items-center justify-center rounded-full border border-red-400/40 bg-gradient-to-br from-red-600 to-red-900 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] shadow-red-600/60 transition active:scale-95 md:h-36 md:w-36";
+        "reactor-core relative z-10 flex h-56 w-56 shrink-0 animate-pulse items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-white shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
+
+      const RESEARCH_TOOLS = ["web_search", "extract_social_profiles", "find_public_emails"];
+      const RESEARCH_MSG_TYPES = new Set([
+        "function-call",
+        "function-call-start",
+        "tool-calls",
+        "tool-call",
+        "tool_calls",
+      ]);
+      const RESEARCH_DONE_TYPES = new Set([
+        "function-call-result",
+        "tool-calls-result",
+        "tool-call-result",
+        "tool_call_result",
+      ]);
 
       let vapi = null;
       let voiceCfg = {};
@@ -160,27 +235,56 @@
       let talkMode = "browser";
       let lastVapiError = "";
       let voiceBusy = false;
+      let clientResearching = false;
+      let serverResearching = false;
       const netLayer = document.getElementById("netLayer");
       const NET_BASE =
         "pointer-events-none absolute inset-0 -z-10 object-cover transition-opacity duration-1000 ease-in-out";
+
+      function isResearching() {
+        return clientResearching || serverResearching;
+      }
+
+      function applyNetVisuals() {
+        const deep = isResearching();
+        const processing =
+          deep ||
+          callStatus === "connecting" ||
+          callStatus === "listening" ||
+          callStatus === "speaking";
+        let vis = "opacity-10";
+        if (isCallActive) vis = "opacity-60";
+        if (callStatus === "speaking") vis = "opacity-100";
+        if (deep) vis = "opacity-100 animate-pulse";
+        const motion = processing && !deep ? "animate-breath" : "";
+        netLayer.className = [NET_BASE, vis, motion].filter(Boolean).join(" ");
+        netLayer.dataset.callStatus = callStatus;
+        netLayer.dataset.callState = callStatus;
+        netLayer.dataset.researching = deep ? "1" : "0";
+      }
 
       function setCallStatus(status) {
         callStatus = status;
         isCallActive = status !== "idle";
         inCall = isCallActive;
-        const processing = status === "connecting" || status === "listening" || status === "speaking";
-        let vis = "opacity-10";
-        if (isCallActive) vis = "opacity-60";
-        if (status === "speaking") vis = "opacity-100";
-        const motion = processing ? "animate-breath" : "";
-        netLayer.className = [NET_BASE, vis, motion].filter(Boolean).join(" ");
-        netLayer.dataset.callStatus = status;
-        netLayer.dataset.callState = status;
+        applyNetVisuals();
       }
       window.setCallStatus = setCallStatus;
 
+      function setResearching(active, source) {
+        if (source === "server") serverResearching = Boolean(active);
+        else clientResearching = Boolean(active);
+        const deep = isResearching();
+        researchOverlay.classList.toggle("hidden", !deep);
+        researchOverlay.classList.toggle("flex", deep);
+        inboxPanel.style.opacity = deep ? "0.1" : "";
+        terminalPanel.style.opacity = deep ? "0.1" : "";
+        applyNetVisuals();
+      }
+      window.setResearching = setResearching;
+
       const terminalMessages = [
-        "J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.",
+        "J.A.R.V.I.S. listo. Pulsa el núcleo o escribe una directiva.",
       ];
 
       function log(line) {
@@ -189,9 +293,64 @@
         terminal.scrollTop = terminal.scrollHeight;
       }
 
-      function setTalk(label, live) {
-        talkBtn.textContent = label;
+      function setTalk(_label, live) {
+        talkBtn.textContent = CORE_LABEL;
         talkBtn.className = live ? TALK_LIVE : TALK_IDLE;
+      }
+
+      function isResearchQuery(text) {
+        const t = String(text || "").toLowerCase();
+        return (
+          /recopilar información|información pública|informacion publica|investigar a|investiga a|buscar en google|busca en google|osint|linkedin|hunter\.io|perfiles sociales/.test(
+            t
+          ) ||
+          (t.includes("google") && /buscar|busca|investiga|investigar/.test(t))
+        );
+      }
+
+      function collectToolNames(value, bag) {
+        if (!value) return;
+        if (Array.isArray(value)) {
+          value.forEach((item) => collectToolNames(item, bag));
+          return;
+        }
+        if (typeof value === "object") {
+          const name = value.name || value.tool || value.functionName;
+          if (typeof name === "string") bag.push(name);
+          if (value.function) collectToolNames(value.function, bag);
+          if (value.toolCall) collectToolNames(value.toolCall, bag);
+          if (value.toolCalls) collectToolNames(value.toolCalls, bag);
+          if (value.tool_calls) collectToolNames(value.tool_calls, bag);
+          if (value.toolCallList) collectToolNames(value.toolCallList, bag);
+        }
+      }
+
+      function researchToolsIn(payload) {
+        const names = [];
+        collectToolNames(payload, names);
+        if (Array.isArray(payload)) {
+          for (const row of payload) {
+            if (row && typeof row === "object" && row.tool) names.push(String(row.tool));
+          }
+        }
+        return names.some((name) => RESEARCH_TOOLS.includes(String(name)));
+      }
+
+      function handleVapiMessage(msg) {
+        if (!msg) return;
+        const type = String(msg.type || "");
+        if (RESEARCH_MSG_TYPES.has(type) || researchToolsIn(msg)) {
+          setResearching(true);
+        }
+        if (RESEARCH_DONE_TYPES.has(type) && !researchToolsIn(msg)) {
+          setResearching(false);
+        }
+        if (type === "transcript" && msg.transcript && (!msg.transcriptType || msg.transcriptType === "final")) {
+          const who = msg.role === "assistant" ? "JARVIS" : "Tú";
+          log(who + ": " + msg.transcript);
+          if (msg.role !== "assistant" && isResearchQuery(msg.transcript)) setResearching(true);
+          if (msg.role === "assistant") setResearching(false);
+        }
       }
 
       async function refreshInbox() {
@@ -201,23 +360,30 @@
           countWa.textContent = data.whatsapp ?? 0;
           countMail.textContent = data.correo ?? 0;
           countTotal.textContent = data.total ?? 0;
+          setResearching(Boolean(data.researching), "server");
         } catch (_err) {
           document.getElementById("link").textContent = "ENLACE INESTABLE";
         }
       }
 
       async function sendDirective(command, { speakAnswer } = {}) {
-        const res = await fetch("/api/jarvis/directive", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command, session_id: "hud" }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        const answer = data.answer || (data.lines || []).slice(1).join(" ");
-        (data.lines || [data.answer]).slice(1).forEach(log);
-        if (speakAnswer && answer) await speak(answer);
-        return answer;
+        const deep = isResearchQuery(command);
+        if (deep) setResearching(true);
+        try {
+          const res = await fetch("/api/jarvis/directive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command, session_id: "hud" }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+          const answer = data.answer || (data.lines || []).slice(1).join(" ");
+          (data.lines || [data.answer]).slice(1).forEach(log);
+          if (speakAnswer && answer) await speak(answer);
+          return answer;
+        } finally {
+          setResearching(false);
+        }
       }
 
       async function speak(text) {
@@ -269,11 +435,12 @@
           }
         };
         rec.onerror = () => {
-          talkStatus.textContent = "No pude oírte. Pulsa HABLAR e inténtalo de nuevo.";
+          talkStatus.textContent = "No pude oírte. Pulsa el núcleo e inténtalo de nuevo.";
         };
         rec.onend = () => {
           setCallStatus("idle");
-          setTalk("HABLAR", false);
+          setTalk(CORE_LABEL, false);
+          setResearching(false);
         };
         rec.start();
       }
@@ -291,8 +458,9 @@
           } finally {
             voiceBusy = false;
             setCallStatus("idle");
-            setTalk("HABLAR", false);
-            talkStatus.textContent = "Llamada terminada. Pulsa HABLAR para continuar.";
+            setTalk(CORE_LABEL, false);
+            setResearching(false);
+            talkStatus.textContent = "Llamada terminada. Pulsa el núcleo para continuar.";
           }
           return;
         }
@@ -334,7 +502,7 @@
           }
         } catch (err) {
           setCallStatus("idle");
-          setTalk("HABLAR", false);
+          setTalk(CORE_LABEL, false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
           log("ERROR voz " + formatError(err));
           startBrowserVoice();
@@ -358,13 +526,14 @@
             vapi.on("call-start", () => {
               setCallStatus("listening");
               setTalk("COLGAR", true);
-              talkStatus.textContent = "En llamada. Habla con Jarvis.";
+              talkStatus.textContent = "En llamada. Pulsa el núcleo para colgar.";
               log("Llamada de voz iniciada.");
             });
             vapi.on("call-end", () => {
               setCallStatus("idle");
-              setTalk("HABLAR", false);
-              talkStatus.textContent = "Llamada terminada. Pulsa HABLAR para continuar.";
+              setTalk(CORE_LABEL, false);
+              setResearching(false);
+              talkStatus.textContent = "Llamada terminada. Pulsa el núcleo para continuar.";
               log("Llamada de voz finalizada.");
             });
             vapi.on("speech-start", () => {
@@ -380,13 +549,10 @@
               log("ERROR Vapi " + text);
             });
             vapi.on("message", (msg) => {
-              if (!msg || msg.type !== "transcript" || !msg.transcript) return;
-              if (msg.transcriptType && msg.transcriptType !== "final") return;
-              const who = msg.role === "assistant" ? "JARVIS" : "Tú";
-              log(who + ": " + msg.transcript);
+              handleVapiMessage(msg);
             });
             talkMode = "vapi";
-            talkStatus.textContent = "Pulsa HABLAR para una llamada de voz con Jarvis.";
+            talkStatus.textContent = "Pulsa J.A.R.V.I.S para una llamada de voz.";
             return;
           } catch (err) {
             log("SDK de Vapi no cargó. " + formatError(err));
@@ -394,7 +560,7 @@
         }
         talkMode = "browser";
         if (browserSpeechSupported()) {
-          talkStatus.textContent = "Pulsa HABLAR (micrófono del navegador) o escribe abajo.";
+          talkStatus.textContent = "Pulsa el núcleo (micrófono del navegador) o escribe abajo.";
         } else {
           talkStatus.textContent = "Este iPhone necesita VAPI_PUBLIC_KEY en Render para hablar. Mientras, escribe abajo.";
         }
@@ -443,20 +609,24 @@
           });
         }
         function tick() {
+          const boost = isResearching() ? 3.2 : 1;
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           for (const n of nodes) {
-            n.x += n.vx;
-            n.y += n.vy;
+            n.x += n.vx * boost;
+            n.y += n.vy * boost;
             if (n.x < 0 || n.x > canvas.width) n.vx *= -1;
             if (n.y < 0 || n.y > canvas.height) n.vy *= -1;
           }
+          const link = isResearching() ? 210 : 150;
           for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
               const a = nodes[i],
                 b = nodes[j];
               const d = Math.hypot(a.x - b.x, a.y - b.y);
-              if (d < 150) {
-                ctx.strokeStyle = `rgba(249, 115, 22, ${0.55 * (1 - d / 150)})`;
+              if (d < link) {
+                const alpha = (isResearching() ? 0.95 : 0.55) * (1 - d / link);
+                ctx.strokeStyle = `rgba(249, 115, 22, ${alpha})`;
+                ctx.lineWidth = isResearching ? 1.4 : 1;
                 ctx.beginPath();
                 ctx.moveTo(a.x, a.y);
                 ctx.lineTo(b.x, b.y);
@@ -465,9 +635,9 @@
             }
           }
           for (const n of nodes) {
-            ctx.fillStyle = "rgba(255, 140, 50, 0.95)";
+            ctx.fillStyle = isResearching() ? "rgba(255, 200, 80, 1)" : "rgba(255, 140, 50, 0.95)";
             ctx.beginPath();
-            ctx.arc(n.x, n.y, 2.1, 0, Math.PI * 2);
+            ctx.arc(n.x, n.y, isResearching() ? 3.1 : 2.1, 0, Math.PI * 2);
             ctx.fill();
           }
           requestAnimationFrame(tick);
@@ -477,7 +647,7 @@
 
       neural();
       refreshInbox();
-      setInterval(refreshInbox, 4000);
+      setInterval(refreshInbox, 1500);
       bootVoice();
     </script>
   </body>

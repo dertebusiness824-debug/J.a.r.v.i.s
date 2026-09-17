@@ -40,7 +40,17 @@ def make_specialist_node(name: str, prompt: str):
             )
         payload = initial_state(query, active_agent=name, system_prompt=extra_prompt)
         payload["retrieved_context"] = state.get("retrieved_context") or ""
-        output = core_subgraph().invoke(payload, {"recursion_limit": get_settings().jarvis_recursion_limit})
+        if name == "research_agent":
+            from jarvis.hud_live import mark_researching
+
+            mark_researching(ttl=60)
+        try:
+            output = core_subgraph().invoke(payload, {"recursion_limit": get_settings().jarvis_recursion_limit})
+        finally:
+            if name == "research_agent":
+                from jarvis.hud_live import clear_researching
+
+                clear_researching()
         answer = extract_answer(output)
         hop: DelegationHop = {
             "agent": name,
