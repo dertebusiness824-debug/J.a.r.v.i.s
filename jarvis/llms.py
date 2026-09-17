@@ -278,6 +278,23 @@ class OfflineChatModel(BaseChatModel):
                 is_complete=True,
                 final_answer=last,
             )
+        draft = next(
+            (
+                msg
+                for msg in reversed(since_last_human(messages))
+                if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None)
+            ),
+            None,
+        )
+        if draft is not None:
+            # El ejecutor ya redactó sin pedir herramientas: cerrar en vez de repetir
+            # la vuelta planificador ↔ ejecutor hasta agotar el presupuesto.
+            return Plan(
+                reasoning="El ejecutor respondió sin herramientas.",
+                tasks=[],
+                is_complete=True,
+                final_answer=str(draft.content),
+            )
         expr_match = _MATH_RE.search(text)
         if expr_match:
             expr = _normalize_math(expr_match.group("expr"))

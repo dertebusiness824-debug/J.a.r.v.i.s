@@ -7,6 +7,7 @@ este StateGraph con su propio set de tools y prompt de sistema.
 from __future__ import annotations
 
 import argparse
+import logging
 import uuid
 from typing import Any, Literal
 
@@ -20,6 +21,29 @@ from jarvis.memory import get_memory
 from jarvis.prompts import EXECUTOR_PROMPT, PLANNER_PROMPT
 from jarvis.state import AgentState, TaskItem, ToolResult
 from jarvis.tools import CORE_TOOLS, tools_by_agent
+
+logger = logging.getLogger(__name__)
+
+
+def loop_budget() -> int:
+    """Vueltas de ejecutor permitidas antes de cerrar la tarea a la fuerza.
+
+    Se queda por debajo de `jarvis_recursion_limit` a propósito: si LangGraph corta
+    primero, el turno muere con `GraphRecursionError` y sin respuesta que hablar.
+    """
+    settings = get_settings()
+    return max(1, min(settings.jarvis_max_iterations, settings.jarvis_recursion_limit // 3))
+
+
+def _loop_answer(state: AgentState) -> str:
+    """Lo mejor que hay en el estado cuando el ciclo se corta: borrador o última tool."""
+    for msg in reversed(state.get("messages") or []):
+        if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
+            return str(msg.content)
+    results = state.get("tool_results") or []
+    if results:
+        return str(results[-1].get("output") or "")
+    return "No pude cerrar la tarea dentro del límite de iteraciones."
 
 
 def retrieve_node(state: AgentState) -> dict[str, Any]:
@@ -72,8 +96,18 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     ]
 
     exhausted = bool(state.get("error")) and retries >= settings.jarvis_max_iterations
-    complete = bool(plan.is_complete) or exhausted
+    loops = int(state.get("hops") or 0)
+    stalled = loops >= loop_budget()
+    complete = bool(plan.is_complete) or exhausted or stalled
     answer = plan.final_answer or (state.get("error") if exhausted else None)
+    if stalled and not answer:
+        answer = _loop_answer(state)
+        logger.warning(
+            "🔁 [CORE LOOP] %s no cerró en %d vueltas; respondo con lo que hay: %r",
+            state.get("active_agent") or "general",
+            loops,
+            answer,
+        )
 
     updates: dict[str, Any] = {
         "plan": tasks,
@@ -104,7 +138,9 @@ def executor_node(state: AgentState) -> dict[str, Any]:
         *(state.get("messages") or []),
     ]
     response = model.invoke(messages)
-    return {"messages": [response]}
+    # El ejecutor está en los dos ciclos del grafo (con el planificador y con las
+    # herramientas), así que contar sus visitas acota cualquier vuelta infinita.
+    return {"messages": [response], "hops": int(state.get("hops") or 0) + 1}
 
 
 def tools_node(state: AgentState) -> dict[str, Any]:
@@ -157,6 +193,10 @@ def route_after_executor(state: AgentState) -> Literal["tools", "planner"]:
 
 def route_after_tools(state: AgentState) -> Literal["planner", "executor"]:
     if state.get("error"):
+        return "planner"
+    if int(state.get("hops") or 0) >= loop_budget():
+        # Se vuelve al planificador (no al ejecutor) para que cierre: el historial
+        # ya tiene los ToolMessage de esta ronda, así que sigue siendo válido.
         return "planner"
     return "executor"
 
