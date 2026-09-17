@@ -78,12 +78,17 @@ def _looks_like_domain(value: str) -> bool:
 def _hunter_api_key() -> str | None:
     """HUNTERIO_API_KEY del entorno; HUNTER_API_KEY y el .env valen como alias."""
     settings = get_settings()
-    return (
-        os.getenv("HUNTERIO_API_KEY")
-        or os.getenv("HUNTER_API_KEY")
-        or settings.hunterio_api_key
-        or settings.hunter_api_key
+    candidates = (
+        os.getenv("HUNTERIO_API_KEY"),
+        os.getenv("HUNTER_API_KEY"),
+        settings.hunterio_api_key,
+        settings.hunter_api_key,
     )
+    for candidate in candidates:
+        key = (candidate or "").strip()
+        if key:
+            return key
+    return None
 
 
 def _compose_dork(query: str, site: str | None = None) -> str:
