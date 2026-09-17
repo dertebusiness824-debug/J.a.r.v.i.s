@@ -66,6 +66,8 @@ cd whatsapp-bridge && npm start
 
 Sin claves LLM el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma/OSINT). Si el puente Node no está levantado, `send_whatsapp_message` responde en modo demo.
 
+El Research Agent usa `TAVILY_API_KEY` para búsqueda web (si falta, cae en DuckDuckGo) y `HUNTERIO_API_KEY` para el Domain Search de Hunter.io: sin esa clave, `find_public_emails` avisa en vez de inventar correos.
+
 ```bash
 python agent_core.py "¿Cuánto es 17 * 24?"
 python -m jarvis "¿Qué productos hay en Shopify?"
