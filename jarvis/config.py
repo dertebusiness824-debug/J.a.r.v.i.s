@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     vapi_public_key: str | None = None
     vapi_assistant_id: str | None = None
     vapi_webhook_secret: str | None = None
+    vapi_response_timeout_seconds: float = 30.0
+    vapi_keepalive_seconds: float = 5.0
 
     cartesia_api_key: str | None = None
     cartesia_voice_id: str | None = None
