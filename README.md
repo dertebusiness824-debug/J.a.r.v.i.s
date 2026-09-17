@@ -36,7 +36,7 @@ jarvis/db/             # SQLite bandeja MensajeEntrante
 jarvis/tools/email_reader.py  # IMAP → bandeja
 ```
 
-En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm`, voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
+En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm` (Vapi añade `/chat/completions`). Voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
 
 ## Arranque
 
@@ -97,7 +97,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`. CORS: `allow_origins=["*"]`.
+Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`, `POST /webhooks/vapi-llm/chat/completions`. CORS: `allow_origins=["*"]`.
 
 ## Producción (Railway / Render)
 

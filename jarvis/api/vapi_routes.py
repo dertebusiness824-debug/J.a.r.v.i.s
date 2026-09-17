@@ -76,8 +76,21 @@ def _flatten_content(content: Any) -> str:
     return str(content or "").strip()
 
 
+def last_user_content(payload: dict[str, Any]) -> str:
+    """Último turno de usuario al estilo OpenAI (`messages[-1].content`)."""
+    messages = payload.get("messages")
+    if isinstance(messages, list) and messages:
+        last = messages[-1]
+        if isinstance(last, dict):
+            text = _flatten_content(last.get("content"))
+            if text:
+                return text
+    text, _session, _stream = extract_user_turn(payload)
+    return text
+
+
 def openai_completion(content: str, *, completion_id: str | None = None) -> dict[str, Any]:
-    cid = completion_id or f"jarvis-{uuid.uuid4().hex[:12]}"
+    cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     return {
         "id": cid,
         "object": "chat.completion",
@@ -93,31 +106,39 @@ def openai_completion(content: str, *, completion_id: str | None = None) -> dict
     }
 
 
-async def _sse_chunks(content: str, *, completion_id: str) -> AsyncIterator[str]:
-    created = int(time.time())
-    start = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": "jarvis-supervisor",
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"role": "assistant", "content": content},
-                "finish_reason": None,
-            }
-        ],
-    }
-    yield f"data: {json.dumps(start, ensure_ascii=False)}\n\n"
-    done = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": "jarvis-supervisor",
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-    }
-    yield f"data: {json.dumps(done)}\n\n"
+def _text_fragments(content: str) -> list[str]:
+    text = (content or "").strip()
+    if not text:
+        return [" "]
+    parts: list[str] = []
+    buf = ""
+    for word in text.split(" "):
+        piece = word if not buf else f" {word}"
+        buf += piece
+        if len(buf) >= 28:
+            parts.append(buf)
+            buf = ""
+    if buf:
+        parts.append(buf)
+    return parts
+
+
+async def _sse_openai_chunks(content: str, *, completion_id: str) -> AsyncIterator[str]:
+    """SSE idéntico al Custom LLM de OpenAI que consume Vapi."""
+    cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    for fragment in _text_fragments(content):
+        payload = {
+            "id": cid,
+            "object": "chat.completion.chunk",
+            "choices": [{"delta": {"content": fragment}}],
+        }
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
+
+
+async def _sse_chunks(content: str, *, completion_id: str) -> AsyncIterator[str]:
+    async for chunk in _sse_openai_chunks(content, completion_id=completion_id):
+        yield chunk
 
 
 def _authorized(request: Request) -> bool:
@@ -133,9 +154,8 @@ def vapi_llm_probe() -> dict[str, str]:
     return {"status": "ok", "model": "jarvis-supervisor"}
 
 
-@router.post("/webhooks/vapi-llm", tags=["vapi"])
-async def vapi_custom_llm(request: Request):
-    """Custom LLM de Vapi: payload OpenAI o message.messages → Supervisor LangGraph."""
+async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
+    """Ejecuta el Supervisor y responde JSON OpenAI o SSE."""
     if not _authorized(request):
         raise HTTPException(status_code=401, detail="Vapi webhook no autorizado")
     try:
@@ -145,22 +165,47 @@ async def vapi_custom_llm(request: Request):
 
         user_text, session_id, stream = extract_user_turn(data)
         if not user_text:
-            body = openai_completion("Sistema listo.")
-            return body
-
-        result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
-        spoken = spoken_from_state(result)
-        completion_id = f"jarvis-{uuid.uuid4().hex[:12]}"
+            user_text = last_user_content(data)
+        stream = force_stream or stream
+        if not user_text:
+            spoken = "Sistema listo."
+        else:
+            result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
+            spoken = spoken_from_state(result)
+        completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         if stream:
             return StreamingResponse(
-                _sse_chunks(spoken, completion_id=completion_id),
+                _sse_openai_chunks(spoken, completion_id=completion_id),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         return openai_completion(spoken, completion_id=completion_id)
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Error en Vapi Custom LLM")
+        if force_stream:
+            return StreamingResponse(
+                _sse_openai_chunks(
+                    "He encontrado un error de procesamiento.",
+                    completion_id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                ),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         return openai_completion("He encontrado un error de procesamiento.")
+
+
+@router.post("/webhooks/vapi-llm", tags=["vapi"])
+async def vapi_custom_llm(request: Request):
+    """Custom LLM de Vapi: payload OpenAI o message.messages → Supervisor LangGraph."""
+    return await _vapi_llm_reply(request, force_stream=False)
+
+
+@router.post("/webhooks/vapi-llm/chat/completions", tags=["vapi"])
+async def vapi_chat_completions(request: Request):
+    """Ruta OpenAI que Vapi llama: POST {custom-llm-url}/chat/completions (SSE)."""
+    return await _vapi_llm_reply(request, force_stream=True)
 
 
 @router.get("/voice/config", tags=["vapi"])
