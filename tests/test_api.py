@@ -55,6 +55,7 @@ def test_health_and_docs():
     assert "speech-start" in hud.text
     assert 'id="netVeil"' in hud.text
     assert "bg-black/40" in hud.text
+    assert "isolate" in hud.text
 
 
 def test_directive_and_inbox_status():
