@@ -42,7 +42,7 @@ def test_health_and_docs():
     hud = client.get("/")
     assert "commandInput" in hud.text
     assert "NEURAL CORE" in hud.text
-    assert "HABLAR" in hud.text
+    assert "J.A.R.V.I.S" in hud.text
     assert 'id="talkBtn"' in hud.text
     assert "Delegación a Code, Comms, Shop o General" not in hud.text
     assert hud.headers.get("cache-control", "").startswith("no-store")
@@ -54,7 +54,20 @@ def test_health_and_docs():
     assert "console.error" in hud.text
     assert "max-h-[40vh]" in hud.text
     assert "flex-1" in hud.text
-    assert "from-orange-500" in hud.text
+    assert "w-56" in hud.text
+    assert "h-56" in hud.text
+    assert "tracking-[0.4em]" in hud.text
+    assert "font-black" in hud.text
+    assert "border-2 border-orange-500" in hud.text
+    assert "shadow-[0_0_50px_rgba(249,115,22,0.6)]" in hud.text
+    assert "animate-[spin_10s_linear_infinite]" in hud.text
+    assert "scanlines" in hud.text
+    assert "text-3xl" in hud.text
+    assert "border-t border-l" in hud.text
+    assert "isResearching" in hud.text
+    assert "ACCEDIENDO A LA RED GLOBAL" in hud.text
+    assert 'id="researchOverlay"' in hud.text
+    assert "setResearching" in hud.text
     assert "animate-pulse" in hud.text
     assert 'id="netLayer"' in hud.text
     assert "absolute inset-0 -z-10" in hud.text
@@ -73,6 +86,11 @@ def test_health_and_docs():
     assert "if (!call" in hud.text
     assert "await vapi.stop()" in hud.text
     assert "lastVapiError" in hud.text
+    assert "getUserMedia" in hud.text
+    assert "INICIAR SISTEMA" in hud.text
+    assert "Requiere interacción manual para desbloquear canales de audio" in hud.text
+    assert "startVapiCall" in hud.text
+    assert "auto: true" in hud.text
 
 
 def test_directive_and_inbox_status():
@@ -81,6 +99,7 @@ def test_directive_and_inbox_status():
     assert empty.status_code == 200
     assert empty.json()["whatsapp"] == 0
     assert empty.json()["correo"] == 0
+    assert empty.json()["researching"] is False
 
     client.post("/webhooks/whatsapp-local", json={"from": "34911@c.us", "body": "cita"})
     from jarvis.db import guardar_mensaje

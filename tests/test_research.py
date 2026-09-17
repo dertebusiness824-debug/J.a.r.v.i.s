@@ -58,3 +58,14 @@ def test_web_search_demo_when_providers_fail(monkeypatch):
     data = json.loads(web_search.invoke({"query": "Ada Lovelace"}))
     assert data["mode"] == "demo"
     assert data["query"] == "Ada Lovelace"
+
+
+def test_web_search_marks_hud_researching():
+    from jarvis.hud_live import clear_researching, is_researching
+
+    clear_researching()
+    assert is_researching() is False
+    web_search.invoke({"query": "Ada Lovelace"})
+    assert is_researching() is True
+    clear_researching()
+    assert is_researching() is False

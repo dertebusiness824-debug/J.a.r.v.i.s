@@ -143,6 +143,8 @@ def inbox_status() -> dict[str, Any]:
     webmail = int(counts.get("webmail") or 0)
     whatsapp = int(counts.get("whatsapp") or 0)
     correo = gmail + webmail
+    from jarvis.hud_live import is_researching
+
     return {
         "whatsapp": whatsapp,
         "correo": correo,
@@ -150,6 +152,7 @@ def inbox_status() -> dict[str, Any]:
         "webmail": webmail,
         "total": len(pendientes),
         "pending": len(pendientes),
+        "researching": is_researching(),
     }
 
 

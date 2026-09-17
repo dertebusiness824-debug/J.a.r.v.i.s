@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from jarvis.agents.base import make_specialist_node
 from jarvis.config import get_settings
+from jarvis.hud_live import mark_researching
 from jarvis.prompts import RESEARCH_PROMPT
 
 NAME = "research_agent"
@@ -134,6 +135,7 @@ def _duckduckgo_search(query: str) -> list[dict[str, Any]]:
 @tool("web_search", args_schema=WebSearchInput)
 def web_search(query: str) -> str:
     """Busca información pública en internet (Tavily si hay clave; si no, DuckDuckGo)."""
+    mark_researching()
     tavily = _tavily_search(query)
     if tavily:
         return json.dumps(
@@ -183,6 +185,7 @@ def web_search(query: str) -> str:
 @tool("extract_social_profiles", args_schema=ExtractSocialProfilesInput)
 def extract_social_profiles(name: str) -> str:
     """Simula dorks para localizar perfiles públicos de LinkedIn y Twitter/X."""
+    mark_researching()
     cleaned = " ".join((name or "").strip().split())
     queries = [
         f"site:linkedin.com/in/ {cleaned}",
@@ -207,6 +210,7 @@ def extract_social_profiles(name: str) -> str:
 @tool("find_public_emails", args_schema=FindPublicEmailsInput)
 def find_public_emails(domain_or_name: str) -> str:
     """Estructura una llamada a Hunter.io (simulada) para emails públicos."""
+    mark_researching()
     query = (domain_or_name or "").strip()
     looks_like_domain = "." in query and " " not in query and "@" not in query
     if looks_like_domain:

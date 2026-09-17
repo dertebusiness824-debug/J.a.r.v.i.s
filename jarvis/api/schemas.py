@@ -53,6 +53,7 @@ class InboxStatusResponse(BaseModel):
     webmail: int = 0
     total: int = 0
     pending: int = 0
+    researching: bool = False
 
 
 class HealthResponse(BaseModel):
