@@ -15,6 +15,15 @@ def test_cors_allows_vapi_and_webhooks():
     )
     assert preflight.headers.get("access-control-allow-origin") == "*"
     assert "POST" in (preflight.headers.get("access-control-allow-methods") or "").upper()
+    alias_preflight = client.options(
+        "/v1/chat/completions",
+        headers={
+            "Origin": "https://api.vapi.ai",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert alias_preflight.headers.get("access-control-allow-origin") == "*"
     health = client.get("/health", headers={"Origin": "https://dashboard.vapi.ai"})
     assert health.status_code == 200
     assert health.headers.get("access-control-allow-origin") == "*"
