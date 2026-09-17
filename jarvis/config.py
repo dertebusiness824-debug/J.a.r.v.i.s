@@ -18,15 +18,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
-    groq_api_key: str | None = None
 
-    planner_provider: str = Field(default="groq")
+    planner_provider: str = Field(default="openai")
     planner_model: str = Field(default="gpt-4o")
     executor_model: str = Field(default="gpt-4o")
-    # Groq retiró los Llama para las cuentas free/developer (16/08/2026); estos son
-    # los reemplazos que recomienda. Cambiables por si tu cuenta sirve otros IDs.
-    groq_planner_model: str = Field(default="openai/gpt-oss-120b")
-    groq_executor_model: str = Field(default="openai/gpt-oss-20b")
 
     jarvis_offline: bool = False
 
@@ -104,23 +99,7 @@ class Settings(BaseSettings):
 
     @property
     def has_llm_credentials(self) -> bool:
-        return bool(self.openai_api_key or self.anthropic_api_key or self.groq_api_key)
-
-    @property
-    def llm_provider(self) -> str:
-        """Proveedor efectivo: manda `planner_provider` si tiene clave; si no, el primero con clave."""
-        keys = {
-            "groq": self.groq_api_key,
-            "openai": self.openai_api_key,
-            "anthropic": self.anthropic_api_key,
-        }
-        wanted = (self.planner_provider or "").strip().lower()
-        if keys.get(wanted):
-            return wanted
-        for name, key in keys.items():
-            if key:
-                return name
-        return wanted or "openai"
+        return bool(self.openai_api_key or self.anthropic_api_key)
 
     @property
     def offline(self) -> bool:
