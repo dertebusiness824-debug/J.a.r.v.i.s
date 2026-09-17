@@ -5,7 +5,8 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 ## Stack
 
 - **Orquestación:** LangGraph `StateGraph` (flujos cíclicos)
-- **Planificación y ejecución:** Groq por defecto (baja latencia para la voz), con OpenAI y Anthropic como alternativas configurables
+- **Planificación:** OpenAI o Anthropic (configurable; `o1` / Claude 3.5 Sonnet)
+- **Ejecución / function calling:** GPT-4o
 - **Memoria:** ChromaDB local (fallback in-memory)
 - **API:** FastAPI asíncrono
 - **WhatsApp:** puente local `whatsapp-web.js` (QR con tu número personal)
@@ -45,7 +46,7 @@ Hace falta **dos procesos**: FastAPI en `:8000` y el puente WhatsApp en `:3000`.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # añade GROQ_API_KEY (u OPENAI_API_KEY / ANTHROPIC_API_KEY)
+cp .env.example .env   # añade OPENAI_API_KEY o ANTHROPIC_API_KEY
 cd whatsapp-bridge && npm install && cd ..
 chmod +x start_all.sh
 ./start_all.sh
@@ -64,8 +65,6 @@ cd whatsapp-bridge && npm start
 `LocalAuth` guarda la sesión en `whatsapp-bridge/.wwebjs_auth/` (gitignored) para no volver a escanear el QR en cada reinicio.
 
 Sin claves LLM el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma/OSINT). Si el puente Node no está levantado, `send_whatsapp_message` responde en modo demo.
-
-El proveedor de LLM se elige con `PLANNER_PROVIDER` (`groq` por defecto, luego `openai` o `anthropic`); si el elegido no tiene clave, se usa el primero que la tenga. Groq va en streaming para que Vapi reciba los fragmentos sin esperar la respuesta completa, y los IDs de modelo se fijan con `GROQ_PLANNER_MODEL` y `GROQ_EXECUTOR_MODEL`. Ojo: los Llama de Groq (`llama-3.1-8b-instant`, `llama3-70b-8192`) están retirados para cuentas free/developer, así que los valores por defecto son `openai/gpt-oss-120b` y `openai/gpt-oss-20b`; consulta `https://api.groq.com/openai/v1/models` para ver los activos en tu cuenta.
 
 El Research Agent usa `TAVILY_API_KEY` para búsqueda web (si falta, cae en DuckDuckGo) y `HUNTERIO_API_KEY` para el Domain Search de Hunter.io: sin esa clave, `find_public_emails` avisa en vez de inventar correos.
 
