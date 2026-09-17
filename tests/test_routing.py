@@ -1,5 +1,5 @@
 from jarvis.agents.research_agent import RESEARCH_TOOLS
-from jarvis.llms import OfflineChatModel, RouteDecision, _guess_username
+from jarvis.llms import OfflineChatModel, Plan, RouteDecision, _guess_username
 from jarvis.memory import InMemoryRetriever, get_memory
 
 
@@ -48,6 +48,22 @@ def test_offline_executor_sends_domain_to_find_public_emails():
 def test_offline_executor_falls_back_to_find_contact_info_without_domain():
     call = _osint_tool_call("Necesito el correo de Ada Lovelace")
     assert call["name"] == "find_contact_info"
+
+
+def test_offline_planner_closes_on_the_executor_draft():
+    """Si el ejecutor ya redactó sin herramientas, planificar otra vuelta no aporta."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    planner = OfflineChatModel(role="planner").with_structured_output(Plan)
+    conversation = [
+        HumanMessage(content="Ejecuta en la terminal el comando sleep 6"),
+        AIMessage(content="Sin herramientas aplicables. Tarea marcada para cierre."),
+    ]
+    plan = planner.invoke(conversation)
+    assert plan.is_complete is True
+    assert plan.final_answer == "Sin herramientas aplicables. Tarea marcada para cierre."
+    # Sin borrador, el planificador sigue pidiendo trabajo.
+    assert planner.invoke([HumanMessage(content="Lista los archivos del sandbox")]).is_complete is False
 
 
 def test_guess_username_prefers_handle():

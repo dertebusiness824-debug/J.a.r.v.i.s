@@ -85,6 +85,13 @@ def test_supervisor_chains_code_then_comms():
     assert "listo" in read_file.invoke({"path": "aviso.txt"}).lower() or "aviso" in extract_answer(state).lower()
 
 
+def test_terminal_order_does_not_blow_up_the_graph():
+    """Esta frase giraba en el subgrafo hasta el GraphRecursionError (Vapi oía un error)."""
+    state = run_jarvis("Ejecuta en la terminal el comando sleep 6", session_id="t-loop")
+    assert state.get("task_complete") is True
+    assert extract_answer(state)
+
+
 def test_arun_jarvis_answers_like_run_jarvis():
     state = asyncio.run(arun_jarvis("¿Cuánto es 17 * 24?", session_id="t-async"))
     assert state.get("active_agent") == "general"

@@ -3,11 +3,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 from jarvis.agent_core import (
     compile_core_graph,
     extract_answer,
+    loop_budget,
     route_after_executor,
     route_after_planner,
     route_after_tools,
     run_core_agent,
 )
+from jarvis.llms import Plan
 from jarvis.state import AgentState
 
 
@@ -36,6 +38,41 @@ def test_conditional_edges_error_returns_to_planner():
 def test_conditional_edges_complete_ends():
     assert route_after_planner({"task_complete": True}) == "end"
     assert route_after_planner({"task_complete": False}) == "executor"
+
+
+def test_tools_return_to_planner_once_the_loop_budget_is_spent():
+    spent = {"hops": loop_budget(), "error": None, "messages": []}
+    assert route_after_tools(spent) == "planner"
+    fresh: AgentState = {"hops": 0, "error": None, "messages": []}
+    assert route_after_tools(fresh) == "executor"
+
+
+def test_a_planner_that_never_finishes_still_closes_the_turn(monkeypatch):
+    """Sin tope, planificador ↔ ejecutor giraban hasta el GraphRecursionError."""
+    calls = {"planner": 0}
+
+    class _NeverDone:
+        def with_structured_output(self, _schema):
+            return self
+
+        def invoke(self, _messages):
+            calls["planner"] += 1
+            return Plan(reasoning="sigo dándole vueltas", tasks=["seguir"], is_complete=False)
+
+    class _NoToolCalls:
+        def bind_tools(self, _tools):
+            return self
+
+        def invoke(self, _messages):
+            return AIMessage(content="Borrador sin herramientas.")
+
+    monkeypatch.setattr("jarvis.agent_core.get_planner_model", lambda: _NeverDone())
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _NoToolCalls())
+
+    state = run_core_agent("dale vueltas para siempre")
+    assert state.get("task_complete") is True
+    assert extract_answer(state) == "Borrador sin herramientas."
+    assert calls["planner"] <= loop_budget() + 1
 
 
 def test_executor_routes_to_tools_on_tool_calls():
