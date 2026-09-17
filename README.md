@@ -105,6 +105,16 @@ El Custom LLM de Vapi responde SSE al estilo OpenAI (`chat.completion.chunk` →
 
 El Supervisor se invoca con `arun_jarvis` (`graph.ainvoke`), nunca desde el event loop: LangGraph despacha los nodos síncronos a un hilo, así que los heartbeats siguen saliendo mientras el turno trabaja. Si algo falla dentro del grafo, el endpoint sigue devolviendo 200 con deltas válidos y Jarvis dice «Error interno del sistema» en voz alta (la traza completa queda en el log del servidor), en vez de cortar el stream y dejar la llamada muda.
 
+Cada turno deja rastro en la consola (Render, Railway o local) para saber en qué eslabón se rompe la llamada:
+
+| Marca | Significado |
+| --- | --- |
+| `🔥 [VAPI INCOMING]` | Llegó la petición: `call`, `stream` y el mensaje del usuario. Si no aparece, Vapi no está llamando a este servicio (revisa la URL del Custom LLM). Sale como `WARNING` con el payload completo cuando el JSON no trae ningún turno de usuario. |
+| `🧠 [VAPI SUPERVISOR]` | El grafo terminó: especialista elegido y herramientas usadas. |
+| `✅ [VAPI OUTGOING]` | Frase que se manda a la voz y segundos que tardó el turno. |
+| `⚠️ [VAPI TIMEOUT]` | El Supervisor pasó de `VAPI_RESPONSE_TIMEOUT_SECONDS`: se contesta la frase de espera. Si sale a menudo, sube el límite o revisa qué herramienta se atasca. |
+| `💥 [VAPI ERROR]` | Fallo interno con traza completa; Vapi recibió la respuesta de error hablada. |
+
 ## Producción (Railway / Render)
 
 ```bash

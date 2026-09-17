@@ -31,6 +31,8 @@ SLOW_REPLY = "Sigo procesando la petición, señor. Dame unos segundos y pregún
 # Se dice en voz alta a propósito: si Vapi lo pronuncia, el endpoint sí respondió
 # y el fallo está dentro del Supervisor (traza completa en el log del servidor).
 ERROR_REPLY = "Error interno del sistema. Revisa la terminal del servidor, señor."
+# Los payloads de Vapi traen la conversación entera: en el log solo cabe un adelanto.
+LOG_PREVIEW_CHARS = 800
 
 
 class TtsRequest(BaseModel):
@@ -187,7 +189,53 @@ async def _supervisor_spoken(user_text: str, session_id: str) -> str:
     if not user_text:
         return "Sistema listo."
     result = await arun_jarvis(user_text, session_id=f"vapi:{session_id}")
+    logger.info(
+        "🧠 [VAPI SUPERVISOR] call=%s agente=%s herramientas=%s",
+        session_id,
+        result.get("active_agent") or "supervisor",
+        [str(item.get("tool") or "") for item in (result.get("tool_results") or [])],
+    )
     return spoken_from_state(result)
+
+
+def _preview(value: Any) -> str:
+    try:
+        raw = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        raw = str(value)
+    return raw[:LOG_PREVIEW_CHARS] + ("…" if len(raw) > LOG_PREVIEW_CHARS else "")
+
+
+def _log_incoming(payload: dict[str, Any], user_text: str, session_id: str, *, stream: bool) -> None:
+    """Primera traza del turno: si esto no sale en Render, la petición no llegó."""
+    if user_text:
+        logger.info(
+            "🔥 [VAPI INCOMING] call=%s stream=%s mensaje=%r",
+            session_id,
+            stream,
+            user_text,
+        )
+        return
+    # Sin texto no hay turno que procesar: el payload completo dice qué mandó Vapi.
+    # Un payload vacío ya se registró al leer el cuerpo, así que basta con INFO.
+    level = logging.INFO if not payload else logging.WARNING
+    logger.log(
+        level,
+        "🔥 [VAPI INCOMING] call=%s stream=%s sin mensaje de usuario; payload=%s",
+        session_id,
+        stream,
+        _preview(payload),
+    )
+
+
+def _log_outgoing(session_id: str, spoken: str, started: float, *, stream: bool) -> None:
+    logger.info(
+        "✅ [VAPI OUTGOING] call=%s stream=%s en %.2f s: %r",
+        session_id,
+        stream,
+        time.monotonic() - started,
+        spoken,
+    )
 
 
 def _budget() -> tuple[float, float]:
@@ -215,19 +263,24 @@ def _detach(task: "asyncio.Future[str]") -> None:
 
 async def _spoken_within_budget(user_text: str, session_id: str) -> str:
     """Camino JSON: misma frase hablable, con el mismo tope de tiempo que el SSE."""
+    started = time.monotonic()
     timeout, _beat = _budget()
     task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
     try:
-        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        spoken = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
     except asyncio.TimeoutError:
         if task.done():
-            return task.result()
-        _detach(task)
-        logger.error(
-            "Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.",
-            timeout,
-        )
-        return SLOW_REPLY
+            spoken = task.result()
+        else:
+            _detach(task)
+            logger.error(
+                "⚠️ [VAPI TIMEOUT] call=%s el Supervisor superó %.1f s; respondo para no colgar la llamada.",
+                session_id,
+                timeout,
+            )
+            spoken = SLOW_REPLY
+    _log_outgoing(session_id, spoken, started, stream=False)
+    return spoken
 
 
 async def _sse_supervisor_reply(
@@ -242,6 +295,7 @@ async def _sse_supervisor_reply(
     """
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
+    started = time.monotonic()
     yield _openai_chunk(
         completion_id=cid,
         created=created,
@@ -252,13 +306,14 @@ async def _sse_supervisor_reply(
     try:
         timeout, beat = _budget()
         task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
-        deadline = time.monotonic() + timeout
+        deadline = started + timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 _detach(task)
                 logger.error(
-                    "Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.",
+                    "⚠️ [VAPI TIMEOUT] call=%s el Supervisor superó %.1f s; respondo para no colgar la llamada.",
+                    session_id,
                     timeout,
                 )
                 spoken = SLOW_REPLY
@@ -275,8 +330,12 @@ async def _sse_supervisor_reply(
                 spoken = task.result()
                 break
     except Exception:
-        logger.exception("Error en Vapi Custom LLM: respondo con voz para no dejar la llamada muda")
+        logger.exception(
+            "💥 [VAPI ERROR] call=%s fallo interno: respondo con voz para no dejar la llamada muda",
+            session_id,
+        )
         spoken = ERROR_REPLY
+    _log_outgoing(session_id, spoken, started, stream=True)
     async for chunk in _sse_openai_chunks(
         spoken, completion_id=cid, created=created, include_role=False
     ):
@@ -296,22 +355,35 @@ def vapi_llm_probe() -> dict[str, str]:
     return {"status": "ok", "model": "jarvis-supervisor"}
 
 
+async def _vapi_payload(request: Request) -> dict[str, Any]:
+    """JSON de Vapi; un cuerpo ilegible se registra en vez de perderse en silencio."""
+    try:
+        data = await request.json()
+    except Exception:
+        raw = await request.body()
+        logger.warning(
+            "🔥 [VAPI INCOMING] cuerpo no-JSON en %s: %s",
+            request.url.path,
+            _preview(raw.decode("utf-8", "replace")),
+        )
+        return {}
+    if isinstance(data, dict):
+        return data
+    logger.warning("🔥 [VAPI INCOMING] JSON inesperado en %s: %s", request.url.path, _preview(data))
+    return {}
+
+
 async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
     """Ejecuta el Supervisor y responde JSON OpenAI o SSE."""
     if not _authorized(request):
         raise HTTPException(status_code=401, detail="Vapi webhook no autorizado")
     try:
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-
+        data = await _vapi_payload(request)
         user_text, session_id, stream = extract_user_turn(data)
         if not user_text:
             user_text = last_user_content(data)
         stream = force_stream or stream
+        _log_incoming(data, user_text, session_id, stream=stream)
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         if stream:
             return StreamingResponse(

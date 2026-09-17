@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 
 from fastapi.testclient import TestClient
@@ -190,12 +191,13 @@ def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_vapi_sse_speaks_the_error_when_the_supervisor_explodes(monkeypatch):
+def test_vapi_sse_speaks_the_error_when_the_supervisor_explodes(monkeypatch, caplog):
     """Un fallo interno se dice en voz alta: nunca un stream cortado sin [DONE]."""
     monkeypatch.setattr(
         "jarvis.api.vapi_routes.arun_jarvis",
         _broken_supervisor(RuntimeError("LangGraph roto")),
     )
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
     client = TestClient(create_app())
     with client.stream(
         "POST",
@@ -207,6 +209,8 @@ def test_vapi_sse_speaks_the_error_when_the_supervisor_explodes(monkeypatch):
     assert "".join(_sse_content(line) for line in lines) == ERROR_REPLY
     assert '"finish_reason": "stop"' in " ".join(lines)
     assert lines[-1] == "data: [DONE]"
+    errors = [rec for rec in caplog.records if "[VAPI ERROR]" in rec.getMessage()]
+    assert errors and errors[0].exc_info, "la traza del fallo debe quedar en el log"
 
 
 def test_vapi_sse_does_not_mistake_a_tool_timeout_for_slowness(monkeypatch):
@@ -241,6 +245,72 @@ def test_vapi_json_path_speaks_the_error(monkeypatch):
     res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
     assert res.status_code == 200
     assert res.json()["choices"][0]["message"]["content"] == ERROR_REPLY
+
+
+def test_vapi_logs_the_incoming_message_and_the_spoken_reply(caplog):
+    """Sin estas dos líneas en Render no se puede saber si Vapi llegó al backend."""
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={
+            "stream": True,
+            "call": {"id": "voice-logs"},
+            "messages": [{"role": "user", "content": "¿Cuánto es 17 * 24?"}],
+        },
+    ) as res:
+        assert res.status_code == 200
+        "".join(res.iter_text())
+    incoming = [rec.getMessage() for rec in caplog.records if "[VAPI INCOMING]" in rec.getMessage()]
+    outgoing = [rec.getMessage() for rec in caplog.records if "[VAPI OUTGOING]" in rec.getMessage()]
+    supervisor = [rec.getMessage() for rec in caplog.records if "[VAPI SUPERVISOR]" in rec.getMessage()]
+    assert incoming and "¿Cuánto es 17 * 24?" in incoming[0]
+    assert "voice-logs" in incoming[0]
+    assert outgoing and "408" in outgoing[0]
+    assert supervisor and "general" in supervisor[0]
+
+
+def test_vapi_logs_a_payload_without_user_message(caplog):
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={"call": {"id": "voice-empty"}})
+    assert res.status_code == 200
+    warnings = [
+        rec.getMessage()
+        for rec in caplog.records
+        if rec.levelno >= logging.WARNING and "[VAPI INCOMING]" in rec.getMessage()
+    ]
+    assert warnings and "sin mensaje de usuario" in warnings[0]
+    assert "voice-empty" in warnings[0]
+
+
+def test_vapi_logs_a_body_that_is_not_json(caplog):
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/vapi-llm",
+        content=b"esto no es json",
+        headers={"content-type": "application/json"},
+    )
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == "Sistema listo."
+    assert any("cuerpo no-JSON" in rec.getMessage() for rec in caplog.records)
+
+
+def test_vapi_logs_the_timeout_before_answering(monkeypatch, caplog):
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(3))
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == SLOW_REPLY
+    assert any("[VAPI TIMEOUT]" in rec.getMessage() for rec in caplog.records)
+    get_settings.cache_clear()
 
 
 def test_vapi_sse_deltas_rebuild_the_sentence_verbatim():
