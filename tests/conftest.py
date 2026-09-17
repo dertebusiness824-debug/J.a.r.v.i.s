@@ -23,6 +23,7 @@ def _offline_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "jarvis.db"))
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("HUNTER_API_KEY", raising=False)
+    monkeypatch.delenv("HUNTERIO_API_KEY", raising=False)
     monkeypatch.setenv("VAPI_PUBLIC_KEY", "")
     monkeypatch.setenv("VAPI_ASSISTANT_ID", "")
     get_settings.cache_clear()

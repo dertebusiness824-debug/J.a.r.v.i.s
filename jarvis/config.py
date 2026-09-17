@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     cartesia_model: str = "sonic-3.6"
 
     tavily_api_key: str | None = None
+    hunterio_api_key: str | None = None
     hunter_api_key: str | None = None
 
     @property
