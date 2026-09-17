@@ -67,6 +67,9 @@ def test_health_and_docs():
     assert 'id="netVeil"' in hud.text
     assert "bg-black/40" in hud.text
     assert "isolate" in hud.text
+    assert "metadataSendMode" in hud.text
+    assert "@vapi-ai/web@2.6.3" in hud.text
+    assert "vapi.start(assistant)" in hud.text
 
 
 def test_directive_and_inbox_status():

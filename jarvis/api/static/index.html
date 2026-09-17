@@ -285,28 +285,45 @@
         talkStatus.textContent = "Conectando con Jarvis…";
         setTalk("CONECTANDO", true);
         setCallStatus("connecting");
-        const llmUrl = voiceCfg.custom_llm_url;
-        const overrides = {
-          model: { provider: "custom-llm", url: llmUrl, model: "jarvis-supervisor" },
-          transcriber: { provider: "deepgram", language: "es" },
+        const llmModel = voiceCfg.custom_llm_model || {
+          provider: "custom-llm",
+          url: voiceCfg.custom_llm_url,
+          model: "jarvis-supervisor",
+          metadataSendMode: "off",
+          timeoutSeconds: 90,
+        };
+        const transcriber = { provider: "deepgram", language: "es" };
+        const voice =
+          voiceCfg.cartesia_configured && voiceCfg.cartesia_voice_id
+            ? {
+                provider: "cartesia",
+                voiceId: voiceCfg.cartesia_voice_id,
+                model: voiceCfg.cartesia_model,
+              }
+            : { provider: "vapi", voiceId: "Elliot" };
+        const assistant = {
+          name: "J.A.R.V.I.S.",
+          firstMessage: "Sistemas en línea. Te escucho, señor.",
+          model: llmModel,
+          transcriber,
+          voice,
         };
         try {
+          // Ephemeral assistant: HABLAR no depende de la URL Custom LLM del dashboard.
+          await vapi.start(assistant);
+        } catch (firstErr) {
+          log("ERROR voz " + formatError(firstErr));
           if (voiceCfg.vapi_assistant_id) {
-            await vapi.start(voiceCfg.vapi_assistant_id, overrides);
-          } else {
-            await vapi.start({
-              name: "J.A.R.V.I.S.",
-              firstMessage: "Sistemas en línea. Te escucho, señor.",
-              model: overrides.model,
-              transcriber: overrides.transcriber,
-              voice: { provider: "vapi", voiceId: "Elliot" },
-            });
+            try {
+              await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
+              return;
+            } catch (secondErr) {
+              log("ERROR voz " + formatError(secondErr));
+            }
           }
-        } catch (err) {
           setCallStatus("idle");
           setTalk("HABLAR", false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
-          log("ERROR voz " + formatError(err));
           startBrowserVoice();
         }
       }
@@ -320,7 +337,7 @@
         }
         if (voiceCfg.vapi_public_key) {
           try {
-            const mod = await import("https://esm.sh/@vapi-ai/web");
+            const mod = await import("https://esm.sh/@vapi-ai/web@2.6.3");
             const Vapi = mod.default;
             vapi = new Vapi(voiceCfg.vapi_public_key);
             vapi.on("call-start", () => {

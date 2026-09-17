@@ -133,6 +133,10 @@ def test_voice_config_and_assistant_blueprint():
     body = cfg.json()
     assert body["custom_llm_path"] == "/webhooks/vapi-llm"
     assert body["custom_llm_url"].endswith("/webhooks/vapi-llm")
+    assert body["custom_llm_model"]["provider"] == "custom-llm"
+    assert body["custom_llm_model"]["url"].endswith("/webhooks/vapi-llm")
+    assert body["custom_llm_model"]["metadataSendMode"] == "off"
+    assert body["custom_llm_model"]["timeoutSeconds"] == 90
     assert "vapi_public_key" in body
     assert "talk_enabled" in body
     blueprint = client.get("/voice/vapi-assistant")
@@ -141,6 +145,7 @@ def test_voice_config_and_assistant_blueprint():
     assert data["model"]["provider"] == "custom-llm"
     assert data["voice"]["provider"] == "cartesia"
     assert "/webhooks/vapi-llm" in data["model"]["url"]
+    assert data["model"]["metadataSendMode"] == "off"
 
 
 def test_voice_tts_without_cartesia():

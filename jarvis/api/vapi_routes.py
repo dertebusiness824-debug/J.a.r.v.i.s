@@ -15,6 +15,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from jarvis.config import get_settings
+from jarvis.api.vapi_events import custom_llm_model
 from jarvis.integrations.cartesia import CartesiaClient
 from jarvis.supervisor import run_jarvis
 from jarvis.voice import spoken_from_state
@@ -298,15 +299,18 @@ def voice_config(request: Request) -> dict[str, Any]:
     settings = get_settings()
     base = (settings.jarvis_public_url or str(request.base_url).rstrip("/")).rstrip("/")
     public_key = settings.vapi_public_key or ""
+    llm_url = f"{base}/webhooks/vapi-llm"
+    cartesia_ok = bool(settings.cartesia_api_key and settings.cartesia_voice_id)
     return {
         "custom_llm_path": "/webhooks/vapi-llm",
-        "custom_llm_url": f"{base}/webhooks/vapi-llm",
+        "custom_llm_url": llm_url,
+        "custom_llm_model": custom_llm_model(llm_url),
         "greeting_path": "/api/jarvis/vapi-events",
         "vapi_public_key": public_key,
         "vapi_public_key_configured": bool(public_key),
         "vapi_assistant_id": settings.vapi_assistant_id or "",
         "talk_enabled": bool(public_key),
-        "cartesia_configured": bool(settings.cartesia_api_key and settings.cartesia_voice_id),
+        "cartesia_configured": cartesia_ok,
         "cartesia_voice_id": settings.cartesia_voice_id or "",
         "cartesia_model": settings.cartesia_model,
     }
@@ -319,11 +323,7 @@ def vapi_assistant_blueprint(request: Request) -> dict[str, Any]:
     base = str(request.base_url).rstrip("/")
     return {
         "name": "J.A.R.V.I.S.",
-        "model": {
-            "provider": "custom-llm",
-            "url": f"{base}/webhooks/vapi-llm",
-            "model": "jarvis-supervisor",
-        },
+        "model": custom_llm_model(f"{base}/webhooks/vapi-llm"),
         "voice": {
             "provider": "cartesia",
             "voiceId": settings.cartesia_voice_id or "<CARTESIA_VOICE_ID>",
