@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     zadarma_pbx_id: str | None = None
 
     whatsapp_bridge_url: str = "http://127.0.0.1:3000"
+    whatsapp_allowed_number: str = "34605686509"
     whatsapp_verify_token: str | None = None
     whatsapp_access_token: str | None = None
     whatsapp_phone_number_id: str | None = None

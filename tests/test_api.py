@@ -81,15 +81,21 @@ def test_whatsapp_local_bridge_inbound():
     assert ping.status_code == 200
     assert ping.json()["ok"] is True
 
+    ignored = client.post(
+        "/webhooks/whatsapp-local",
+        json={"from": "34600000000@c.us", "body": "¿Cuánto es 2 + 2?"},
+    )
+    assert ignored.status_code == 200
+    assert ignored.json()["status"] == "ignored"
+
     res = client.post(
         "/webhooks/whatsapp-local",
-        json={"from": "15551234567@c.us", "body": "¿Cuánto es 2 + 2?"},
+        json={"from": "34605686509@c.us", "body": "¿Cuánto es 2 + 2?"},
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["ok"] is True
+    assert body["status"] == "received"
     assert body["queued"] is True
-    assert body["channel"] == "whatsapp-web"
 
 
 def test_whatsapp_local_on_uvicorn_app():
@@ -98,10 +104,10 @@ def test_whatsapp_local_on_uvicorn_app():
     client = TestClient(uvicorn_app)
     res = client.post(
         "/webhooks/whatsapp-local",
-        json={"from": "15551234567@c.us", "body": "ping"},
+        json={"from": "34605686509", "body": "ping"},
     )
     assert res.status_code == 200
-    assert res.json()["ok"] is True
+    assert res.json()["status"] == "received"
 
 
 def test_twilio_webhook_removed():
