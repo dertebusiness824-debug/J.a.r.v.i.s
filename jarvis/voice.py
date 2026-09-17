@@ -77,6 +77,11 @@ def to_spoken(
         parts.append("WhatsApp enviado.")
     if "send_zadarma_sms" in names:
         parts.append("SMS enviado.")
+    if any(
+        name in names
+        for name in ("web_search", "extract_social_profiles", "find_public_emails")
+    ):
+        parts.append("Información pública recopilada.")
     if "calculate_expression" in names:
         value = None
         for item in reversed(results):

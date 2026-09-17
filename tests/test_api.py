@@ -27,6 +27,7 @@ def test_health_and_docs():
     body = health.json()
     assert body["status"] == "ok"
     assert "code_agent" in body["agents"]
+    assert "research_agent" in body["agents"]
     assert client.get("/docs").status_code == 200
     assert client.get("/").status_code == 200
     hud = client.get("/")

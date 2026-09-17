@@ -9,6 +9,7 @@ def test_supervisor_graph_compiles():
     assert "code_agent" in mermaid
     assert "comms_agent" in mermaid
     assert "shop_agent" in mermaid
+    assert "research_agent" in mermaid
 
 
 def test_supervisor_routes_math_to_general():
@@ -79,3 +80,33 @@ def test_supervisor_chains_code_then_comms():
     from jarvis.tools import read_file
 
     assert "listo" in read_file.invoke({"path": "aviso.txt"}).lower() or "aviso" in extract_answer(state).lower()
+
+
+def test_supervisor_routes_research_osint(monkeypatch):
+    monkeypatch.setattr(
+        "jarvis.agents.research_agent._tavily_search",
+        lambda _query: None,
+    )
+    monkeypatch.setattr(
+        "jarvis.agents.research_agent._duckduckgo_search",
+        lambda query: [
+            {
+                "title": "Ada Lovelace",
+                "snippet": "Matemática y pionera de la programación.",
+                "url": "https://example.com/ada",
+            }
+        ],
+    )
+    state = run_jarvis(
+        "Investiga a Ada Lovelace en Google y recopila información pública",
+        session_id="t-osint",
+    )
+    assert state.get("active_agent") == "research_agent"
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "web_search" in tools_used
+    log = state.get("delegation_log") or []
+    assert log
+    assert log[0]["agent"] == "research_agent"
+    assert "research_agent" in (state.get("visited_agents") or [])
+    answer = extract_answer(state)
+    assert "Ada" in answer or "demo" in answer.lower() or "información" in answer.lower()

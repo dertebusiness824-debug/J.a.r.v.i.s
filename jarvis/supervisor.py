@@ -17,7 +17,14 @@ from jarvis.memory import get_memory
 from jarvis.prompts import SUPERVISOR_PROMPT
 from jarvis.state import AgentState, SpecialistName
 
-SpecialistTarget = Literal["code_agent", "comms_agent", "shop_agent", "general", "__end__"]
+SpecialistTarget = Literal[
+    "code_agent",
+    "comms_agent",
+    "shop_agent",
+    "research_agent",
+    "general",
+    "__end__",
+]
 
 _SUPERVISOR_GRAPH = None
 _CHECKPOINTER = None
@@ -127,6 +134,8 @@ def compile_supervisor_graph(*, checkpointer: Any | None = None):
     builder = StateGraph(AgentState)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("supervisor", supervisor_node)
+    # Cada especialista, incluido research_agent, vuelve al Supervisor con
+    # Command(goto="supervisor") tras emitir su delegation_log (make_specialist_node).
     for name, node in SPECIALIST_NODES.items():
         builder.add_node(name, node)
     builder.add_edge(START, "retrieve")

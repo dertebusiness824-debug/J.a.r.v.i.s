@@ -73,7 +73,14 @@ def create_app() -> FastAPI:
             status="ok",
             version=__version__,
             offline=settings.offline,
-            agents=["supervisor", "code_agent", "comms_agent", "shop_agent", "general"],
+            agents=[
+                "supervisor",
+                "code_agent",
+                "comms_agent",
+                "shop_agent",
+                "research_agent",
+                "general",
+            ],
         )
 
     @app.get("/graph", tags=["ops"])

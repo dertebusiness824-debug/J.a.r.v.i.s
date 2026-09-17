@@ -22,4 +22,7 @@ def test_offline_router_code_comms_shop_general():
     assert router.invoke("Manda un WhatsApp de confirmación").next_agent == "comms_agent"
     assert router.invoke("Envía un SMS por Zadarma").next_agent == "comms_agent"
     assert router.invoke("Lista el inventario de Shopify").next_agent == "shop_agent"
+    assert router.invoke("Investiga a Ada Lovelace en Google").next_agent == "research_agent"
+    assert router.invoke("Recopilar información pública de Acme Corp").next_agent == "research_agent"
+    assert router.invoke("Buscar en Google el perfil de LinkedIn de Ana Pérez").next_agent == "research_agent"
     assert router.invoke("¿Cuánto es 3+4?").next_agent == "general"

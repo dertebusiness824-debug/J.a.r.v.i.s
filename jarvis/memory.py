@@ -14,7 +14,8 @@ from jarvis.config import get_settings
 logger = logging.getLogger(__name__)
 
 _DEFAULT_FACTS = [
-    "Jarvis v2.0 es un sistema multi-agente: Supervisor, Code Agent, Comms Agent y Shop Agent.",
+    "Jarvis v2.0 es un sistema multi-agente: Supervisor, Code Agent, Comms Agent, Shop Agent y Research Agent.",
+    "El Research Agent recopila información pública (OSINT): web_search, perfiles LinkedIn/Twitter y emails Hunter.io.",
     "El Code Agent opera solo dentro del sandbox configurado en WORKSPACE_ROOT.",
     "El Comms Agent envía WhatsApp por un puente local whatsapp-web.js (QR del número personal) y SMS por Zadarma PBX.",
     "El Shop Agent consulta productos, inventario y pedidos de Shopify por GraphQL Admin API.",

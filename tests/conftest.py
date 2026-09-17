@@ -21,6 +21,8 @@ def _offline_env(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path / "sandbox"))
     monkeypatch.setenv("CHROMA_DIR", str(tmp_path / "chroma"))
     monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "jarvis.db"))
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("HUNTER_API_KEY", raising=False)
     get_settings.cache_clear()
     get_memory.cache_clear()
     reset_engine()

@@ -11,6 +11,7 @@ SpecialistName = Literal[
     "code_agent",
     "comms_agent",
     "shop_agent",
+    "research_agent",
     "general",
     "FINISH",
 ]

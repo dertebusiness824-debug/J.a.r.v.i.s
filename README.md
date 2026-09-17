@@ -1,6 +1,6 @@
 # Jarvis v2.0 — Arquitectura Multi-Agente
 
-Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el prompt, delega a un especialista (Code, Comms, Shop o General) y espera el resultado.
+Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el prompt, delega a un especialista (Code, Comms, Shop, Research o General) y espera el resultado.
 
 ## Stack
 
@@ -22,6 +22,7 @@ jarvis/
     code_agent.py
     comms_agent.py
     shop_agent.py
+    research_agent.py
     general.py
   api/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
@@ -63,7 +64,7 @@ cd whatsapp-bridge && npm start
 
 `LocalAuth` guarda la sesión en `whatsapp-bridge/.wwebjs_auth/` (gitignored) para no volver a escanear el QR en cada reinicio.
 
-Sin claves LLM el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma). Si el puente Node no está levantado, `send_whatsapp_message` responde en modo demo.
+Sin claves LLM el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma/OSINT). Si el puente Node no está levantado, `send_whatsapp_message` responde en modo demo.
 
 ```bash
 python agent_core.py "¿Cuánto es 17 * 24?"
@@ -80,10 +81,12 @@ flowchart TD
   S -->|code| C[Code Agent]
   S -->|comms| M[Comms Agent]
   S -->|shop| H[Shop Agent]
+  S -->|research| OS[Research Agent]
   S -->|general| G[General]
   C --> P[Planificador]
   M --> P
   H --> P
+  OS --> P
   G --> P
   P -->|plan| E[Ejecutor GPT-4o]
   E -->|tool_calls| T[Herramientas]

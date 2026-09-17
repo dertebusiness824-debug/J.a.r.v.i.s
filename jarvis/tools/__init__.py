@@ -319,6 +319,10 @@ ALL_TOOLS = [
 
 
 def tools_by_agent(name: str) -> list:
+    if name == "research_agent":
+        from jarvis.agents.research_agent import RESEARCH_TOOLS
+
+        return list(RESEARCH_TOOLS)
     mapping = {
         "general": CORE_TOOLS,
         "code_agent": CODE_TOOLS,

@@ -7,6 +7,8 @@ def test_supervisor_prompt_is_voice_ready():
     assert "interfaz de voz" in SUPERVISOR_PROMPT
     assert "NUNCA uses formato Markdown" in SUPERVISOR_PROMPT
     assert "Archivo actualizado" in SUPERVISOR_PROMPT
+    assert "research_agent" in SUPERVISOR_PROMPT
+    assert "recopilar información" in SUPERVISOR_PROMPT
 
 
 def test_strip_markdown():
@@ -40,6 +42,11 @@ def test_spoken_calculator_and_shop():
         tool_results=[{"tool": "send_zadarma_sms", "output": '{"status":"queued"}', "ok": True}],
     )
     assert sms == "SMS enviado."
+    research = to_spoken(
+        '{"provider":"duckduckgo"}',
+        tool_results=[{"tool": "web_search", "output": '{"results":[]}', "ok": True}],
+    )
+    assert research == "Información pública recopilada."
 
 
 def test_extract_vapi_payload_shapes():

@@ -19,7 +19,7 @@ class RouteDecision(BaseModel):
     next_agent: SpecialistName = Field(
         description=(
             "Especialista a quien delegar: code_agent, comms_agent, shop_agent, "
-            "general, o FINISH si la tarea ya está resuelta."
+            "research_agent, general, o FINISH si la tarea ya está resuelta."
         )
     )
     rationale: str = Field(description="Justificación breve de la decisión.")
@@ -36,6 +36,50 @@ _MATH_RE = re.compile(
     r"(?P<expr>\d+(?:\.\d+)?(?:\s*[\+\-\*/x×]\s*\d+(?:\.\d+)?)+)",
     re.IGNORECASE,
 )
+
+_RESEARCH_PHRASES = (
+    "recopilar información",
+    "recopila información",
+    "información pública",
+    "informacion publica",
+    "investigar a",
+    "investiga a",
+    "investigar sobre",
+    "investiga sobre",
+    "buscar en google",
+    "busca en google",
+    "buscar en internet",
+    "busca en internet",
+    "perfiles sociales",
+    "perfil de linkedin",
+    "emails públicos",
+    "emails publicos",
+    "correo público",
+    "correo publico",
+    "due diligence",
+)
+
+_RESEARCH_TOKENS = (
+    "osint",
+    "linkedin",
+    "hunter.io",
+    "hunter io",
+)
+
+
+def _is_research_query(text: str) -> bool:
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in _RESEARCH_PHRASES):
+        return True
+    if any(token in lowered for token in _RESEARCH_TOKENS):
+        return True
+    if "google" in lowered and any(k in lowered for k in ("buscar", "busca", "investiga", "investigar")):
+        return True
+    if any(k in lowered for k in ("twitter", "x.com")) and any(
+        k in lowered for k in ("perfil", "investiga", "investigar", "osint")
+    ):
+        return True
+    return False
 
 
 def last_user_text(messages: list[BaseMessage] | list[Any]) -> str:
@@ -167,6 +211,8 @@ class OfflineChatModel(BaseChatModel):
             )
         ) and "shop_agent" not in visited:
             return RouteDecision(next_agent="shop_agent", rationale="Tarea de e-commerce.")
+        if _is_research_query(query) and "research_agent" not in visited:
+            return RouteDecision(next_agent="research_agent", rationale="Tarea de OSINT / información pública.")
         if visited:
             return RouteDecision(next_agent="FINISH", rationale="Especialistas necesarios ya reportaron.")
         return RouteDecision(next_agent="general", rationale="Consulta general / herramientas core.")
@@ -237,6 +283,12 @@ class OfflineChatModel(BaseChatModel):
             return Plan(
                 reasoning="Consulta de filesystem/código: se usa el sandbox.",
                 tasks=["Inspeccionar sandbox"],
+                is_complete=False,
+            )
+        if _is_research_query(text):
+            return Plan(
+                reasoning="Consulta OSINT: se usan las tools de investigación pública.",
+                tasks=["Buscar información pública"],
                 is_complete=False,
             )
         return Plan(
@@ -372,6 +424,46 @@ class OfflineChatModel(BaseChatModel):
                     {
                         "name": "send_zadarma_sms",
                         "args": {"to": "+10000000000", "body": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "extract_social_profiles" in tool_names and any(
+            k in lowered for k in ("linkedin", "twitter", "perfil", "social", "x.com")
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "extract_social_profiles",
+                        "args": {"name": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "find_public_emails" in tool_names and any(
+            k in lowered for k in ("email", "correo", "hunter", "@", "mail")
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "find_public_emails",
+                        "args": {"domain_or_name": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "web_search" in tool_names:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "web_search",
+                        "args": {"query": text},
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",
                     }

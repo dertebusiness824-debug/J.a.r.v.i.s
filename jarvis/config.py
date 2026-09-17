@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     cartesia_voice_id: str | None = None
     cartesia_model: str = "sonic-3.6"
 
+    tavily_api_key: str | None = None
+    hunter_api_key: str | None = None
+
     @property
     def workspace_path(self) -> Path:
         path = Path(self.workspace_root)
