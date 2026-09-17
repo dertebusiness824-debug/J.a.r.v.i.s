@@ -49,7 +49,7 @@
         50% { opacity: 1; }
       }
       @keyframes glitch {
-        0%, 100% { transform: translate(0); opacity: 1; text-shadow: 0 0 8px rgba(249,115,22,0.9); }
+        0%, 100% { transform: translate(0); opacity: 1; text-shadow: 0 0 8px rgba(16,185,129,0.9); }
         20% { transform: translate(-2px, 1px); opacity: 0.8; }
         40% { transform: translate(2px, -1px); opacity: 1; }
         60% { transform: translate(-1px, -2px); opacity: 0.88; }
@@ -62,12 +62,12 @@
           to bottom,
           rgba(0, 0, 0, 0) 0px,
           rgba(0, 0, 0, 0) 2px,
-          rgba(249, 115, 22, 0.05) 2px,
-          rgba(249, 115, 22, 0.05) 3px
+          rgba(16, 185, 129, 0.06) 2px,
+          rgba(16, 185, 129, 0.06) 3px
         );
       }
       .reactor-core {
-        background: radial-gradient(circle at center, rgba(249, 115, 22, 0.38) 0%, rgba(8, 4, 0, 0.98) 68%);
+        background: radial-gradient(circle at center, rgba(16, 185, 129, 0.35) 0%, rgba(0, 8, 5, 0.98) 68%);
       }
     </style>
   </head>
@@ -93,7 +93,7 @@
     >
       <p
         id="researchBanner"
-        class="animate-glitch px-4 text-center font-mono text-xl font-black tracking-[0.35em] text-orange-500 drop-shadow-[0_0_18px_rgba(249,115,22,0.85)] md:text-3xl"
+        class="animate-glitch px-4 text-center font-mono text-xl font-black tracking-[0.35em] text-emerald-400 drop-shadow-[0_0_18px_rgba(16,185,129,0.85)] md:text-3xl"
       >
         ACCEDIENDO A LA RED GLOBAL...
       </p>
@@ -102,12 +102,12 @@
     <div class="relative z-10 mx-auto flex min-h-dvh w-full max-w-3xl flex-col md:max-w-5xl">
       <header class="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
         <div>
-          <h1 class="font-hud text-sm font-black tracking-[0.28em] text-orange-500 md:text-base">
+          <h1 class="font-hud text-sm font-black tracking-[0.28em] text-emerald-400 md:text-base">
             JARVIS NEURAL CORE
           </h1>
           <p class="mt-1 text-xs tracking-widest text-gray-400">Supervisor multi-agente · voz y texto</p>
         </div>
-        <span id="link" class="font-mono text-[10px] font-medium uppercase tracking-widest text-orange-400">
+        <span id="link" class="font-mono text-[10px] font-medium uppercase tracking-widest text-emerald-300">
           SISTEMAS EN LÍNEA
         </span>
       </header>
@@ -115,40 +115,44 @@
       <main class="flex flex-1 flex-col gap-4 p-4 pb-2 md:grid md:grid-cols-[240px_1fr] md:grid-rows-[auto_1fr]">
         <aside
           id="inboxPanel"
-          class="hud-panel scanlines border-t border-l border-orange-500/50 bg-black/80 p-4 backdrop-blur-md md:row-span-2"
+          class="hud-panel scanlines border-t border-l border-emerald-500/30 bg-black/80 p-4 backdrop-blur-md md:row-span-2"
         >
-          <h2 class="mb-3 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-orange-500">
+          <h2 class="mb-3 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400">
             Bandeja de entrada
           </h2>
           <p class="mb-3 text-xs text-gray-400">Mensajes pendientes, sin marcar como leídos.</p>
           <div class="grid grid-cols-3 gap-2 md:grid-cols-1 md:gap-3">
-            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">WhatsApp</span>
-              <b id="countWa" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
+              <b id="countWa" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
             </div>
-            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">Correo</span>
-              <b id="countMail" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
+              <b id="countMail" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
             </div>
-            <div class="flex items-baseline justify-between border-t border-l border-orange-500/50 bg-black/70 px-3 py-2">
+            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">Total</span>
-              <b id="countTotal" class="font-mono text-3xl font-black text-orange-500 drop-shadow-[0_0_10px_rgba(249,115,22,0.85)]">0</b>
+              <b id="countTotal" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
             </div>
           </div>
         </aside>
 
         <section
           id="corePanel"
-          class="relative flex flex-col items-center justify-center border-t border-l border-orange-500/50 bg-black/50 px-4 py-6 backdrop-blur-md"
+          class="relative flex flex-col items-center justify-center border-t border-l border-emerald-500/30 bg-black/50 px-4 py-6 backdrop-blur-md"
         >
-          <div class="relative flex h-56 w-56 items-center justify-center">
+          <div class="relative flex h-72 w-72 items-center justify-center md:h-96 md:w-96">
             <div
-              class="pointer-events-none absolute inset-0 rounded-full border border-dashed border-orange-500/50 animate-[spin_10s_linear_infinite]"
+              id="corePing"
+              class="pointer-events-none absolute inset-0 hidden rounded-full bg-emerald-500/20 animate-ping"
+            ></div>
+            <div
+              class="pointer-events-none absolute inset-0 rounded-full border border-dashed border-emerald-500/40 animate-[spin_10s_linear_infinite]"
             ></div>
             <button
               type="button"
               id="talkBtn"
-              class="reactor-core relative z-10 flex h-56 w-56 shrink-0 items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs"
+              class="reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 font-hud font-black transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96 text-[11px] tracking-[0.4em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.3)] md:text-xs"
             >
               J.A.R.V.I.S
             </button>
@@ -160,14 +164,14 @@
 
         <section
           id="terminalPanel"
-          class="hud-panel flex min-h-0 flex-col border-t border-l border-orange-500/50 bg-black/80 p-4 backdrop-blur-md"
+          class="hud-panel flex min-h-0 flex-col border-t border-l border-emerald-500/30 bg-black/80 p-4 backdrop-blur-md"
         >
-          <h2 class="mb-2 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-orange-500">
+          <h2 class="mb-2 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400">
             Terminal del Supervisor
           </h2>
           <pre
             id="terminal"
-            class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-orange-100/90"
+            class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-emerald-100/90"
           >J.A.R.V.I.S. listo. Pulsa el núcleo o escribe una directiva.</pre>
         </section>
       </main>
@@ -180,10 +184,10 @@
           id="commandInput"
           autocomplete="off"
           placeholder="Escribe una directiva… ¿Cuánto es 17 * 24?"
-          class="min-w-0 flex-1 border-t border-l border-orange-500/50 bg-black/40 px-4 py-2 font-mono text-sm text-white placeholder:text-gray-500 backdrop-blur-md outline-none focus:border-orange-500/60"
+          class="min-w-0 flex-1 border-t border-l border-emerald-500/30 bg-black/40 px-4 py-2 font-mono text-sm text-white placeholder:text-gray-500 backdrop-blur-md outline-none focus:border-emerald-400/60"
         />
         <button
-          class="shrink-0 border-t border-l border-orange-500 bg-orange-500 px-4 py-2 font-hud text-sm font-black tracking-wide text-black"
+          class="shrink-0 border-t border-l border-emerald-400 bg-gradient-to-br from-emerald-500 to-green-600 px-4 py-2 font-hud text-sm font-black tracking-wide text-black transition-all duration-300 ease-out hover:scale-105 active:scale-95"
           type="submit"
           id="send"
         >
@@ -208,12 +212,15 @@
 
       const CORE_LABEL = "J.A.R.V.I.S";
       const UNLOCK_LABEL = "INICIAR SISTEMA";
+      // Debe coincidir con la clase del botón en el HTML: reposo con brillo tenue.
+      const CORE_BASE =
+        "reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 font-hud font-black transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96";
       const TALK_IDLE =
-        "reactor-core relative z-10 flex h-56 w-56 shrink-0 items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
+        `${CORE_BASE} text-[11px] tracking-[0.4em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.3)] md:text-xs`;
       const TALK_LIVE =
-        "reactor-core relative z-10 flex h-56 w-56 shrink-0 animate-pulse items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[11px] font-black tracking-[0.4em] text-white shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95 md:text-xs";
+        `${CORE_BASE} animate-pulse text-[11px] tracking-[0.4em] text-white shadow-[0_0_50px_rgba(16,185,129,0.7)] md:text-xs`;
       const TALK_UNLOCK =
-        "reactor-core relative z-10 flex h-56 w-56 shrink-0 animate-pulse items-center justify-center rounded-full border-2 border-orange-500 font-hud text-[10px] font-black tracking-[0.12em] text-orange-100 shadow-[0_0_50px_rgba(249,115,22,0.6)] transition active:scale-95";
+        `${CORE_BASE} animate-pulse text-[10px] tracking-[0.12em] text-emerald-100 shadow-[0_0_30px_rgba(16,185,129,0.45)]`;
 
       const RESEARCH_TOOLS = [
         "web_search",
@@ -249,6 +256,7 @@
       let serverResearching = false;
       let needsManualStart = false;
       const netLayer = document.getElementById("netLayer");
+      const corePing = document.getElementById("corePing");
       const NET_BASE =
         "pointer-events-none absolute inset-0 -z-10 object-cover transition-opacity duration-1000 ease-in-out";
 
@@ -256,7 +264,14 @@
         return clientResearching || serverResearching;
       }
 
+      function applyCoreVisuals() {
+        // Las ondas solo salen con la llamada viva o en búsqueda profunda.
+        const live = isCallActive || isResearching();
+        corePing.classList.toggle("hidden", !live);
+      }
+
       function applyNetVisuals() {
+        applyCoreVisuals();
         const deep = isResearching();
         const processing =
           deep ||
@@ -686,7 +701,7 @@
               const d = Math.hypot(a.x - b.x, a.y - b.y);
               if (d < link) {
                 const alpha = (isResearching() ? 0.95 : 0.55) * (1 - d / link);
-                ctx.strokeStyle = `rgba(249, 115, 22, ${alpha})`;
+                ctx.strokeStyle = `rgba(16, 185, 129, ${alpha})`;
                 ctx.lineWidth = isResearching() ? 1.4 : 1;
                 ctx.beginPath();
                 ctx.moveTo(a.x, a.y);
@@ -696,7 +711,7 @@
             }
           }
           for (const n of nodes) {
-            ctx.fillStyle = isResearching() ? "rgba(255, 200, 80, 1)" : "rgba(255, 140, 50, 0.95)";
+            ctx.fillStyle = isResearching() ? "rgba(167, 243, 208, 1)" : "rgba(52, 211, 153, 0.95)";
             ctx.beginPath();
             ctx.arc(n.x, n.y, isResearching() ? 3.1 : 2.1, 0, Math.PI * 2);
             ctx.fill();

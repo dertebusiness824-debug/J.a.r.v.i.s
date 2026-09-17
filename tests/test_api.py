@@ -54,12 +54,23 @@ def test_health_and_docs():
     assert "console.error" in hud.text
     assert "max-h-[40vh]" in hud.text
     assert "flex-1" in hud.text
-    assert "w-56" in hud.text
-    assert "h-56" in hud.text
+    assert "w-72" in hud.text
+    assert "h-72" in hud.text
+    assert "md:h-96 md:w-96" in hud.text
     assert "tracking-[0.4em]" in hud.text
     assert "font-black" in hud.text
-    assert "border-2 border-orange-500" in hud.text
-    assert "shadow-[0_0_50px_rgba(249,115,22,0.6)]" in hud.text
+    assert "border-2 border-emerald-500" in hud.text
+    assert "transition-all duration-300 ease-out" in hud.text
+    assert "hover:scale-105" in hud.text
+    assert "active:scale-95" in hud.text
+    assert "shadow-[0_0_20px_rgba(16,185,129,0.3)]" in hud.text
+    assert "hover:shadow-[0_0_50px_rgba(16,185,129,0.7)]" in hud.text
+    assert 'id="corePing"' in hud.text
+    assert "bg-emerald-500/20 animate-ping" in hud.text
+    assert "border-emerald-500/30" in hud.text
+    assert "text-emerald-400" in hud.text
+    assert "from-emerald-500 to-green-600" in hud.text
+    assert "orange" not in hud.text
     assert "animate-[spin_10s_linear_infinite]" in hud.text
     assert "scanlines" in hud.text
     assert "text-3xl" in hud.text
