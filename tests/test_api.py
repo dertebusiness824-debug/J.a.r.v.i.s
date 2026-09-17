@@ -108,6 +108,10 @@ def test_health_and_docs():
     assert "conic-gradient" in hud.text
     assert "radar-sweep" in hud.text
     assert "animate-[spin_6s_linear_infinite]" in hud.text
+    # Los anillos giran con `animate-[spin_...]`: sin estos keyframes propios se
+    # quedarían quietos si el CDN de Tailwind deja de emitirlos.
+    assert "@keyframes spin" in hud.text
+    assert "bg-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.9)]" in hud.text
     assert hud.text.count("border-green-500/20") >= 2
     assert "border-2 border-dashed border-green-500/40 animate-[spin_10s_linear_infinite]" in hud.text
     # El texto del núcleo va en su propio span (los anillos no se pisan al cambiar de estado).

@@ -55,6 +55,11 @@
         60% { transform: translate(-1px, -2px); opacity: 0.88; }
         80% { transform: translate(1px, 2px); opacity: 1; }
       }
+      /* Los `animate-[spin_...]` de los anillos usan estos keyframes: declararlos aquí
+         evita depender de que el CDN de Tailwind los emita. */
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
       .animate-breath { animation: breath 2.4s ease-in-out infinite; }
       .animate-glitch { animation: glitch 1.8s steps(2, end) infinite; }
       .scanlines {
@@ -166,10 +171,16 @@
               id="corePing"
               class="pointer-events-none absolute inset-0 hidden rounded-full bg-emerald-500/20 animate-ping"
             ></div>
-            <!-- Halo mecánico: fuera del resplandor del botón, o los guiones se lavan. -->
+            <!-- Halo mecánico: fuera del resplandor del botón, o los guiones se lavan.
+                 Un círculo de guiones uniformes girando parece quieto, así que lleva
+                 un punto que orbita para que el movimiento se vea. -->
             <div
               class="pointer-events-none absolute -inset-4 rounded-full border-2 border-dashed border-emerald-500/40 animate-[spin_10s_linear_infinite]"
-            ></div>
+            >
+              <span
+                class="absolute left-1/2 top-0 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.9)]"
+              ></span>
+            </div>
             <button
               type="button"
               id="talkBtn"
