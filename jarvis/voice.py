@@ -79,7 +79,14 @@ def to_spoken(
         parts.append("SMS enviado.")
     if any(
         name in names
-        for name in ("web_search", "extract_social_profiles", "find_public_emails")
+        for name in (
+            "web_search",
+            "extract_social_profiles",
+            "find_public_emails",
+            "advanced_dork_search",
+            "find_contact_info",
+            "username_lookup",
+        )
     ):
         parts.append("Información pública recopilada.")
     if "calculate_expression" in names:

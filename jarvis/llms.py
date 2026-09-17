@@ -37,6 +37,8 @@ _MATH_RE = re.compile(
     re.IGNORECASE,
 )
 
+_GIT_RE = re.compile(r"\bgit\b")
+
 _RESEARCH_PHRASES = (
     "recopilar información",
     "recopila información",
@@ -56,6 +58,11 @@ _RESEARCH_PHRASES = (
     "emails publicos",
     "correo público",
     "correo publico",
+    "correos públicos",
+    "correos publicos",
+    "correo corporativo",
+    "correos de",
+    "nombre de usuario",
     "due diligence",
 )
 
@@ -64,6 +71,11 @@ _RESEARCH_TOKENS = (
     "linkedin",
     "hunter.io",
     "hunter io",
+    "hunterio",
+    "username",
+    "github",
+    "instagram",
+    "dork",
 )
 
 
@@ -80,6 +92,36 @@ def _is_research_query(text: str) -> bool:
     ):
         return True
     return False
+
+
+_USERNAME_STOPWORDS = frozenset(
+    {
+        "alias",
+        "comprueba",
+        "de",
+        "el",
+        "en",
+        "github",
+        "instagram",
+        "medium",
+        "nombre",
+        "para",
+        "usuario",
+        "username",
+    }
+)
+
+
+def _guess_username(text: str) -> str:
+    """Alias más probable en modo offline: un @handle, o la última palabra útil."""
+    tokens = [token.strip(".,;:¿?!()\"'") for token in text.split()]
+    for token in tokens:
+        if token.startswith("@") and len(token) > 1:
+            return token[1:]
+    for token in reversed(tokens):
+        if token and token.lower() not in _USERNAME_STOPWORDS:
+            return token
+    return tokens[-1] if tokens else ""
 
 
 def last_user_text(messages: list[BaseMessage] | list[Any]) -> str:
@@ -162,22 +204,24 @@ class OfflineChatModel(BaseChatModel):
                     visited = {part.strip() for part in raw.split(",") if part.strip()}
 
         lowered = query.lower()
-        if any(
-            k in lowered
-            for k in (
-                "código",
-                "codigo",
-                "archivo",
-                "terminal",
-                "python",
-                "script",
-                "sandbox",
-                "git",
-                "refactor",
-                "leer fichero",
-                "write file",
-                "run_terminal",
+        if (
+            any(
+                k in lowered
+                for k in (
+                    "código",
+                    "codigo",
+                    "archivo",
+                    "terminal",
+                    "python",
+                    "script",
+                    "sandbox",
+                    "refactor",
+                    "leer fichero",
+                    "write file",
+                    "run_terminal",
+                )
             )
+            or _GIT_RE.search(lowered)
         ) and "code_agent" not in visited:
             return RouteDecision(next_agent="code_agent", rationale="Tarea de código / filesystem.")
         if any(
@@ -429,6 +473,79 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
+        if "username_lookup" in tool_names and any(
+            k in lowered for k in ("github", "instagram", "medium", "usuario", "username", "alias")
+        ):
+            handle = _guess_username(text)
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "username_lookup",
+                        "args": {"username": handle},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        contact_keywords = (
+            "email",
+            "correo",
+            "hunter",
+            "@",
+            "mail",
+            "teléfono",
+            "telefono",
+            "contacto",
+        )
+        domain_match = re.search(r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", lowered)
+        if (
+            "find_public_emails" in tool_names
+            and domain_match
+            and any(k in lowered for k in contact_keywords)
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "find_public_emails",
+                        "args": {"domain": domain_match.group(0)},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "find_contact_info" in tool_names and any(k in lowered for k in contact_keywords):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "find_contact_info",
+                        "args": {"domain_or_company": text, "person_name": None},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "advanced_dork_search" in tool_names and any(
+            k in lowered for k in ("site:", "linkedin", "twitter", "dork", "intitle:", "intext:")
+        ):
+            site = None
+            if "linkedin" in lowered:
+                site = "linkedin.com/in"
+            elif "twitter" in lowered or "x.com" in lowered:
+                site = "twitter.com"
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "advanced_dork_search",
+                        "args": {"query": text, "site": site},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
         if "extract_social_profiles" in tool_names and any(
             k in lowered for k in ("linkedin", "twitter", "perfil", "social", "x.com")
         ):
@@ -438,20 +555,6 @@ class OfflineChatModel(BaseChatModel):
                     {
                         "name": "extract_social_profiles",
                         "args": {"name": text},
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "tool_call",
-                    }
-                ],
-            )
-        if "find_public_emails" in tool_names and any(
-            k in lowered for k in ("email", "correo", "hunter", "@", "mail")
-        ):
-            return AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "find_public_emails",
-                        "args": {"domain_or_name": text},
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",
                     }

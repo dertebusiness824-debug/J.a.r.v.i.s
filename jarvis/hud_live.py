@@ -6,7 +6,14 @@ import threading
 import time
 
 RESEARCH_TOOLS = frozenset(
-    {"web_search", "extract_social_profiles", "find_public_emails"}
+    {
+        "web_search",
+        "extract_social_profiles",
+        "find_public_emails",
+        "advanced_dork_search",
+        "find_contact_info",
+        "username_lookup",
+    }
 )
 
 _lock = threading.Lock()
