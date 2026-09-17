@@ -49,6 +49,30 @@ def test_vapi_server_url_shopify_payload():
     assert "{" not in spoken
 
 
+def test_vapi_chat_completions_sse_openai_path():
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={
+            "model": "jarvis-supervisor",
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": "vapi"},
+                {"role": "user", "content": "¿Cuánto es 17 * 24?"},
+            ],
+        },
+    ) as res:
+        assert res.status_code == 200
+        body = "".join(res.iter_text())
+    assert "text/event-stream" in res.headers["content-type"]
+    assert "chat.completion.chunk" in body
+    assert '"delta"' in body
+    assert "408" in body
+    assert "data: [DONE]" in body
+    assert body.strip().endswith("data: [DONE]")
+
+
 def test_vapi_stream_sse():
     client = TestClient(create_app())
     with client.stream(

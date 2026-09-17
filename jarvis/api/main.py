@@ -1,7 +1,7 @@
 """Punto de entrada ASGI: `uvicorn jarvis.api.main:app --host 0.0.0.0 --port 8000`.
 
 CORS (allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]) se aplica en `create_app()`.
-HUD Neural Core: GET `/` (estáticos). Órdenes: POST `/api/jarvis/directive`. Bandeja: GET `/api/jarvis/inbox-status`.
+HUD Neural Core: GET `/`. Órdenes: POST `/api/jarvis/directive`. Vapi Custom LLM: POST `/webhooks/vapi-llm` y POST `/webhooks/vapi-llm/chat/completions` (SSE OpenAI).
 """
 
 from fastapi import Request
