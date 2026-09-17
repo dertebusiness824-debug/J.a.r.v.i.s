@@ -15,6 +15,15 @@ def test_cors_allows_vapi_and_webhooks():
     )
     assert preflight.headers.get("access-control-allow-origin") == "*"
     assert "POST" in (preflight.headers.get("access-control-allow-methods") or "").upper()
+    alias_preflight = client.options(
+        "/v1/chat/completions",
+        headers={
+            "Origin": "https://api.vapi.ai",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert alias_preflight.headers.get("access-control-allow-origin") == "*"
     health = client.get("/health", headers={"Origin": "https://dashboard.vapi.ai"})
     assert health.status_code == 200
     assert health.headers.get("access-control-allow-origin") == "*"
@@ -58,6 +67,12 @@ def test_health_and_docs():
     assert 'id="netVeil"' in hud.text
     assert "bg-black/40" in hud.text
     assert "isolate" in hud.text
+    assert "metadataSendMode" in hud.text
+    assert "@vapi-ai/web@2.6.3" in hud.text
+    assert "vapi.start(assistant)" in hud.text
+    assert "if (!call" in hud.text
+    assert "await vapi.stop()" in hud.text
+    assert "lastVapiError" in hud.text
 
 
 def test_directive_and_inbox_status():

@@ -21,6 +21,8 @@ def test_vapi_events_empty_inbox():
     assert spoken == "Sistemas en línea. No hay mensajes pendientes, señor."
     assert body["assistant"]["model"]["provider"] == "custom-llm"
     assert body["assistant"]["model"]["url"] == VAPI_LLM_URL
+    assert body["assistant"]["model"]["metadataSendMode"] == "off"
+    assert body["assistant"]["model"]["timeoutSeconds"] == 90
 
 
 def test_vapi_events_briefing_marks_read():

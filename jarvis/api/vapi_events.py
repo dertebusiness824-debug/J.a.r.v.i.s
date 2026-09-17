@@ -18,14 +18,22 @@ def custom_llm_url() -> str:
     return f"{base}/webhooks/vapi-llm"
 
 
+def custom_llm_model(url: str | None = None) -> dict[str, Any]:
+    """Custom LLM que Vapi debe usar: base URL (sin /chat/completions) + SSE estable."""
+    return {
+        "provider": "custom-llm",
+        "url": url or custom_llm_url(),
+        "model": "jarvis-supervisor",
+        "metadataSendMode": "off",
+        "timeoutSeconds": 90,
+    }
+
+
 def assistant_request_payload(spoken: str) -> dict[str, Any]:
     return {
         "assistant": {
             "firstMessage": spoken,
-            "model": {
-                "provider": "custom-llm",
-                "url": custom_llm_url(),
-            },
+            "model": custom_llm_model(),
         }
     }
 

@@ -69,8 +69,46 @@ def test_vapi_chat_completions_sse_openai_path():
     assert "chat.completion.chunk" in body
     assert '"delta"' in body
     assert "408" in body
+    assert '"finish_reason": "stop"' in body or '"finish_reason":"stop"' in body
     assert "data: [DONE]" in body
     assert body.strip().endswith("data: [DONE]")
+    assert '"role": "assistant"' in body or '"role":"assistant"' in body
+    assert res.headers.get("x-accel-buffering") == "no"
+
+
+def test_vapi_openai_path_aliases_stream():
+    client = TestClient(create_app())
+    payload = {"stream": True, "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]}
+    for path in (
+        "/v1/chat/completions",
+        "/v1/chat/completions/",
+        "/chat/completions",
+        "/webhooks/vapi-llm/v1/chat/completions",
+        "/webhooks/vapi-llm/chat/completions/",
+    ):
+        with client.stream("POST", path, json=payload) as res:
+            assert res.status_code == 200, path
+            body = "".join(res.iter_text())
+        assert "4" in body, path
+        assert "data: [DONE]" in body, path
+
+
+def test_vapi_chat_completions_get_probe():
+    client = TestClient(create_app())
+    for path in ("/chat/completions", "/v1/chat/completions", "/webhooks/vapi-llm/chat/completions"):
+        probe = client.get(path)
+        assert probe.status_code == 200, path
+        assert probe.json()["status"] == "ok"
+
+
+def test_vapi_extracts_call_messages():
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/vapi-llm",
+        json={"call": {"id": "voice-call-msgs", "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]}},
+    )
+    assert res.status_code == 200
+    assert "4" in res.json()["choices"][0]["message"]["content"]
 
 
 def test_vapi_stream_sse():
@@ -95,6 +133,10 @@ def test_voice_config_and_assistant_blueprint():
     body = cfg.json()
     assert body["custom_llm_path"] == "/webhooks/vapi-llm"
     assert body["custom_llm_url"].endswith("/webhooks/vapi-llm")
+    assert body["custom_llm_model"]["provider"] == "custom-llm"
+    assert body["custom_llm_model"]["url"].endswith("/webhooks/vapi-llm")
+    assert body["custom_llm_model"]["metadataSendMode"] == "off"
+    assert body["custom_llm_model"]["timeoutSeconds"] == 90
     assert "vapi_public_key" in body
     assert "talk_enabled" in body
     blueprint = client.get("/voice/vapi-assistant")
@@ -103,6 +145,7 @@ def test_voice_config_and_assistant_blueprint():
     assert data["model"]["provider"] == "custom-llm"
     assert data["voice"]["provider"] == "cartesia"
     assert "/webhooks/vapi-llm" in data["model"]["url"]
+    assert data["model"]["metadataSendMode"] == "off"
 
 
 def test_voice_tts_without_cartesia():
