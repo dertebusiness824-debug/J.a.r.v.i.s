@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     jarvis_port: int = 8000
     jarvis_max_iterations: int = 8
     jarvis_recursion_limit: int = 25
+    jarvis_db_path: str = "./data/jarvis.db"
+
+    email_host: str | None = None
+    email_user: str | None = None
+    email_pass: str | None = None
+    email_port: int = 993
+    email_folder: str = "INBOX"
+    email_use_ssl: bool = True
 
     vapi_public_key: str | None = None
     vapi_assistant_id: str | None = None
@@ -73,6 +81,14 @@ class Settings(BaseSettings):
             path = ROOT_DIR / path
         path.mkdir(parents=True, exist_ok=True)
         return path.resolve()
+
+    @property
+    def database_url(self) -> str:
+        path = Path(self.jarvis_db_path)
+        if not path.is_absolute():
+            path = ROOT_DIR / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite:///{path.resolve()}"
 
     @property
     def has_llm_credentials(self) -> bool:

@@ -10,6 +10,7 @@ from jarvis import agent_core as agent_core_mod
 from jarvis import supervisor as supervisor_mod
 from jarvis.agents import base as agents_base
 from jarvis.config import get_settings
+from jarvis.db import reset_engine
 from jarvis.integrations.zadarma import ZadarmaClient
 from jarvis.memory import get_memory
 
@@ -19,8 +20,10 @@ def _offline_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_OFFLINE", "true")
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path / "sandbox"))
     monkeypatch.setenv("CHROMA_DIR", str(tmp_path / "chroma"))
+    monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "jarvis.db"))
     get_settings.cache_clear()
     get_memory.cache_clear()
+    reset_engine()
     ZadarmaClient.inbound_calls.clear()
     agent_core_mod._CORE_GRAPH = None
     agents_base.reset_core_subgraph()
@@ -29,4 +32,5 @@ def _offline_env(monkeypatch, tmp_path):
     yield
     get_settings.cache_clear()
     get_memory.cache_clear()
+    reset_engine()
     ZadarmaClient.inbound_calls.clear()

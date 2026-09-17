@@ -19,12 +19,14 @@ from jarvis.integrations.messaging import WhatsAppClient
 from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
 from jarvis.api.whatsapp_local import attach_whatsapp_local_webhook
+from jarvis.db import briefing_inicial, init_db
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     app.state.graph = compile_supervisor_graph()
     yield
 
@@ -111,6 +113,11 @@ def create_app() -> FastAPI:
         return {"ok": True, "processed": len(replies), "replies": replies}
 
     attach_whatsapp_local_webhook(app)
+
+    @app.get("/api/jarvis/saludo-inicial", tags=["vapi"])
+    def saludo_inicial() -> dict:
+        """First message dinámico de Vapi: briefing de bandeja no leída."""
+        return briefing_inicial(marcar=True)
 
     @app.get("/webhooks/zadarma", tags=["webhooks"])
     async def zadarma_verify(zd_echo: str | None = Query(default=None)) -> Response:

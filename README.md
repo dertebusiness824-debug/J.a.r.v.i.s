@@ -31,6 +31,8 @@ jarvis/
     cartesia.py
 whatsapp-bridge/       # Node: whatsapp-web.js + Express :3000
 start_all.sh           # FastAPI :8000 + puente :3000
+jarvis/db/             # SQLite bandeja MensajeEntrante
+jarvis/tools/email_reader.py  # IMAP → bandeja
 ```
 
 En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm`, voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
@@ -92,7 +94,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/whatsapp-local`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`. El puente Node expone `POST http://127.0.0.1:3000/send`.
+Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `POST /webhooks/whatsapp-local` (guarda en bandeja), `GET /api/jarvis/saludo-inicial` (briefing Vapi), `GET|POST /webhooks/whatsapp`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`. El puente Node expone `POST http://127.0.0.1:3000/send`.
 
 ## Producción (Railway / Render)
 

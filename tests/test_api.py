@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from fastapi.testclient import TestClient
 
 from jarvis.api.app import create_app
@@ -83,26 +81,20 @@ def test_whatsapp_local_bridge_inbound():
     assert ping.status_code == 200
     assert ping.json()["ok"] is True
 
-    with patch("jarvis.api.whatsapp_local.requests.post") as notify:
-        notify.return_value.raise_for_status.return_value = None
-        intercepted = client.post(
-            "/webhooks/whatsapp-local",
-            json={"from": "34600000000@c.us", "body": "Hola, ¿tienen cita?"},
-        )
-    assert intercepted.status_code == 200
-    assert intercepted.json()["status"] == "intercepted_and_notified"
-    assert notify.called
-    payload = notify.call_args.kwargs["json"]
-    assert payload["to"] == "34605686509@c.us"
-    assert "34600000000" in payload["message"]
-    assert "cita" in payload["message"]
+    inbound = client.post(
+        "/webhooks/whatsapp-local",
+        json={"from": "34600000000@c.us", "body": "Hola, ¿tienen cita?"},
+    )
+    assert inbound.status_code == 200
+    assert inbound.json()["status"] == "saved_to_inbox"
+    assert inbound.json()["saved"] is True
 
-    res = client.post(
+    master = client.post(
         "/webhooks/whatsapp-local",
         json={"from": "34605686509@c.us", "body": "¿Cuánto es 2 + 2?"},
     )
-    assert res.status_code == 200
-    assert res.json()["status"] == "processing_master_command"
+    assert master.status_code == 200
+    assert master.json()["status"] == "saved_to_inbox"
 
 
 def test_whatsapp_local_on_uvicorn_app():
@@ -115,7 +107,7 @@ def test_whatsapp_local_on_uvicorn_app():
         json={"from": "34605686509", "body": "ping"},
     )
     assert res.status_code == 200
-    assert res.json()["status"] == "processing_master_command"
+    assert res.json()["status"] == "saved_to_inbox"
 
 
 def test_twilio_webhook_removed():
