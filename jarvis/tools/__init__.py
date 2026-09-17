@@ -74,13 +74,19 @@ class RunTerminalInput(BaseModel):
 
 
 class SendWhatsAppInput(BaseModel):
-    to: str = Field(description="Número E.164 del destinatario, p.ej. +5215512345678.")
+    to: str = Field(
+        description="Destinatario: E.164 (+52155…) o JID de WhatsApp Web (52155…@c.us)."
+    )
     body: str = Field(description="Texto del mensaje de WhatsApp.")
 
 
-class SendSmsInput(BaseModel):
+class SendZadarmaSmsInput(BaseModel):
     to: str = Field(description="Número E.164 del destinatario.")
     body: str = Field(description="Texto del SMS.")
+    sender: str | None = Field(
+        default=None,
+        description="Caller ID / SenderID Zadarma opcional (número verificado o alfanumérico).",
+    )
 
 
 class ShopifyProductsInput(BaseModel):
@@ -222,18 +228,46 @@ def run_terminal(command: str) -> str:
 
 @tool("send_whatsapp_message", args_schema=SendWhatsAppInput)
 def send_whatsapp_message(to: str, body: str) -> str:
-    """Envía un mensaje de WhatsApp (Cloud API). En modo demo, simula el envío."""
-    from jarvis.integrations.messaging import WhatsAppClient
+    """Envía WhatsApp vía el puente local: POST http://127.0.0.1:3000/send."""
+    import json
 
-    return WhatsAppClient().send_text(to=to, body=body)
+    import requests
+
+    from jarvis.integrations.messaging import to_whatsapp_id
+
+    payload = {"to": to_whatsapp_id(to), "message": body}
+    try:
+        response = requests.post("http://127.0.0.1:3000/send", json=payload, timeout=20)
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"raw": response.text}
+        if isinstance(data, dict):
+            data.setdefault("channel", "whatsapp-web")
+            data.setdefault("to", payload["to"])
+            return json.dumps(data, ensure_ascii=False)
+        return json.dumps({"channel": "whatsapp-web", "result": data}, ensure_ascii=False)
+    except requests.RequestException as exc:
+        return json.dumps(
+            {
+                "mode": "demo",
+                "channel": "whatsapp-web",
+                "to": payload["to"],
+                "body": body,
+                "status": "queued",
+                "error": f"puente no disponible: {exc}",
+            },
+            ensure_ascii=False,
+        )
 
 
-@tool("send_sms", args_schema=SendSmsInput)
-def send_sms(to: str, body: str) -> str:
-    """Envía un SMS vía Twilio. En modo demo, simula el envío."""
-    from jarvis.integrations.messaging import TwilioClient
+@tool("send_zadarma_sms", args_schema=SendZadarmaSmsInput)
+def send_zadarma_sms(to: str, body: str, sender: str | None = None) -> str:
+    """Envía un SMS vía Zadarma PBX (API REST firmada). En modo demo, simula el envío."""
+    from jarvis.integrations.zadarma import ZadarmaClient
 
-    return TwilioClient().send_sms(to=to, body=body)
+    return ZadarmaClient().send_sms(to=to, body=body, sender=sender)
 
 
 @tool("shopify_list_products", args_schema=ShopifyProductsInput)
@@ -262,7 +296,7 @@ def shopify_inventory_summary(product_id: str | None = None) -> str:
 
 CORE_TOOLS = [get_current_time, calculate_expression]
 CODE_TOOLS = [read_file, write_file, list_directory, run_terminal, *CORE_TOOLS]
-COMMS_TOOLS = [send_whatsapp_message, send_sms, get_current_time]
+COMMS_TOOLS = [send_whatsapp_message, send_zadarma_sms, get_current_time]
 SHOP_TOOLS = [
     shopify_list_products,
     shopify_list_orders,
@@ -277,7 +311,7 @@ ALL_TOOLS = [
     list_directory,
     run_terminal,
     send_whatsapp_message,
-    send_sms,
+    send_zadarma_sms,
     shopify_list_products,
     shopify_list_orders,
     shopify_inventory_summary,
@@ -285,6 +319,10 @@ ALL_TOOLS = [
 
 
 def tools_by_agent(name: str) -> list:
+    if name == "research_agent":
+        from jarvis.agents.research_agent import RESEARCH_TOOLS
+
+        return list(RESEARCH_TOOLS)
     mapping = {
         "general": CORE_TOOLS,
         "code_agent": CODE_TOOLS,

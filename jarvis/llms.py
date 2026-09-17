@@ -19,7 +19,7 @@ class RouteDecision(BaseModel):
     next_agent: SpecialistName = Field(
         description=(
             "Especialista a quien delegar: code_agent, comms_agent, shop_agent, "
-            "general, o FINISH si la tarea ya está resuelta."
+            "research_agent, general, o FINISH si la tarea ya está resuelta."
         )
     )
     rationale: str = Field(description="Justificación breve de la decisión.")
@@ -36,6 +36,50 @@ _MATH_RE = re.compile(
     r"(?P<expr>\d+(?:\.\d+)?(?:\s*[\+\-\*/x×]\s*\d+(?:\.\d+)?)+)",
     re.IGNORECASE,
 )
+
+_RESEARCH_PHRASES = (
+    "recopilar información",
+    "recopila información",
+    "información pública",
+    "informacion publica",
+    "investigar a",
+    "investiga a",
+    "investigar sobre",
+    "investiga sobre",
+    "buscar en google",
+    "busca en google",
+    "buscar en internet",
+    "busca en internet",
+    "perfiles sociales",
+    "perfil de linkedin",
+    "emails públicos",
+    "emails publicos",
+    "correo público",
+    "correo publico",
+    "due diligence",
+)
+
+_RESEARCH_TOKENS = (
+    "osint",
+    "linkedin",
+    "hunter.io",
+    "hunter io",
+)
+
+
+def _is_research_query(text: str) -> bool:
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in _RESEARCH_PHRASES):
+        return True
+    if any(token in lowered for token in _RESEARCH_TOKENS):
+        return True
+    if "google" in lowered and any(k in lowered for k in ("buscar", "busca", "investiga", "investigar")):
+        return True
+    if any(k in lowered for k in ("twitter", "x.com")) and any(
+        k in lowered for k in ("perfil", "investiga", "investigar", "osint")
+    ):
+        return True
+    return False
 
 
 def last_user_text(messages: list[BaseMessage] | list[Any]) -> str:
@@ -106,9 +150,18 @@ class OfflineChatModel(BaseChatModel):
         return str(input)
 
     def _route(self, text: str) -> RouteDecision:
-        lowered = text.lower()
-        if any(k in lowered for k in ("finish", "tarea completada", "ya está resuelto")):
-            return RouteDecision(next_agent="FINISH", rationale="Tarea ya resuelta.")
+        query = text
+        visited: set[str] = set()
+        for line in text.splitlines():
+            lowered_line = line.lower().strip()
+            if lowered_line.startswith("consulta:"):
+                query = line.split(":", 1)[1].strip()
+            elif lowered_line.startswith("visitados:"):
+                raw = line.split(":", 1)[1].strip().lower()
+                if raw not in {"ninguno", "none", ""}:
+                    visited = {part.strip() for part in raw.split(",") if part.strip()}
+
+        lowered = query.lower()
         if any(
             k in lowered
             for k in (
@@ -125,12 +178,23 @@ class OfflineChatModel(BaseChatModel):
                 "write file",
                 "run_terminal",
             )
-        ):
+        ) and "code_agent" not in visited:
             return RouteDecision(next_agent="code_agent", rationale="Tarea de código / filesystem.")
         if any(
             k in lowered
-            for k in ("whatsapp", "twilio", "sms", "mensaje", "webhook", "comunicación", "comunicacion")
-        ):
+            for k in (
+                "whatsapp",
+                "zadarma",
+                "sms",
+                "mensaje",
+                "webhook",
+                "comunicación",
+                "comunicacion",
+                "centralita",
+                "pbx",
+                "llamada",
+            )
+        ) and "comms_agent" not in visited:
             return RouteDecision(next_agent="comms_agent", rationale="Tarea de mensajería.")
         if any(
             k in lowered
@@ -145,8 +209,12 @@ class OfflineChatModel(BaseChatModel):
                 "ecommerce",
                 "e-commerce",
             )
-        ):
+        ) and "shop_agent" not in visited:
             return RouteDecision(next_agent="shop_agent", rationale="Tarea de e-commerce.")
+        if _is_research_query(query) and "research_agent" not in visited:
+            return RouteDecision(next_agent="research_agent", rationale="Tarea de OSINT / información pública.")
+        if visited:
+            return RouteDecision(next_agent="FINISH", rationale="Especialistas necesarios ya reportaron.")
         return RouteDecision(next_agent="general", rationale="Consulta general / herramientas core.")
 
     def _plan(self, text: str, raw: Any) -> Plan:
@@ -190,7 +258,10 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Consultar Shopify"],
                 is_complete=False,
             )
-        if any(k in lowered for k in ("whatsapp", "twilio", "sms", "mensaje")):
+        if any(
+            k in lowered
+            for k in ("whatsapp", "zadarma", "sms", "mensaje", "centralita", "pbx", "llamada")
+        ):
             return Plan(
                 reasoning="Consulta de mensajería: se usan las tools de Comms.",
                 tasks=["Enviar mensaje"],
@@ -214,6 +285,12 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Inspeccionar sandbox"],
                 is_complete=False,
             )
+        if _is_research_query(text):
+            return Plan(
+                reasoning="Consulta OSINT: se usan las tools de investigación pública.",
+                tasks=["Buscar información pública"],
+                is_complete=False,
+            )
         return Plan(
             reasoning="Respuesta directa sin herramientas.",
             tasks=[],
@@ -233,6 +310,7 @@ class OfflineChatModel(BaseChatModel):
             return AIMessage(content=str(tool_msgs[-1].content))
 
         text = last_user_text(messages)
+        lowered = text.lower()
         expr_match = _MATH_RE.search(text)
         if expr_match and "calculate_expression" in tool_names:
             expr = _normalize_math(expr_match.group("expr"))
@@ -247,7 +325,7 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
-        if any(k in text.lower() for k in ("hora", "fecha", "time")) and "get_current_time" in tool_names:
+        if any(k in lowered for k in ("hora", "fecha", "time")) and "get_current_time" in tool_names:
             return AIMessage(
                 content="",
                 tool_calls=[
@@ -259,8 +337,24 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
+        if "write_file" in tool_names and any(
+            k in lowered for k in ("crea", "escribe", "guardar", "write", "crear")
+        ):
+            match = re.search(r"([\w./-]+\.(?:py|txt|md|json|js|ts|csv))", text)
+            path = match.group(1) if match else "nota.txt"
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "write_file",
+                        "args": {"path": path, "content": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
         if "list_directory" in tool_names and any(
-            k in text.lower() for k in ("archivo", "sandbox", "directorio", "listar")
+            k in lowered for k in ("archivo", "sandbox", "directorio", "listar")
         ):
             return AIMessage(
                 content="",
@@ -321,13 +415,55 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
-        if "send_sms" in tool_names and "sms" in text.lower():
+        if "send_zadarma_sms" in tool_names and any(
+            k in text.lower() for k in ("sms", "zadarma", "centralita")
+        ):
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
-                        "name": "send_sms",
+                        "name": "send_zadarma_sms",
                         "args": {"to": "+10000000000", "body": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "extract_social_profiles" in tool_names and any(
+            k in lowered for k in ("linkedin", "twitter", "perfil", "social", "x.com")
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "extract_social_profiles",
+                        "args": {"name": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "find_public_emails" in tool_names and any(
+            k in lowered for k in ("email", "correo", "hunter", "@", "mail")
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "find_public_emails",
+                        "args": {"domain_or_name": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "web_search" in tool_names:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "web_search",
+                        "args": {"query": text},
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",
                     }

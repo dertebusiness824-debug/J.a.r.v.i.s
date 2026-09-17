@@ -11,6 +11,7 @@ SpecialistName = Literal[
     "code_agent",
     "comms_agent",
     "shop_agent",
+    "research_agent",
     "general",
     "FINISH",
 ]
@@ -30,8 +31,17 @@ class ToolResult(TypedDict, total=False):
     ok: bool
 
 
+class DelegationHop(TypedDict, total=False):
+    """Reporte que un especialista devuelve al Supervisor."""
+
+    agent: str
+    rationale: str
+    result: str
+    ok: bool
+
+
 class AgentState(TypedDict, total=False):
-    """Estado compartido entre Supervisor, Planificador, Ejecutor y especialistas."""
+    """Estado compartido entre Supervisor y especialistas."""
 
     messages: Annotated[list[AnyMessage], add_messages]
     user_query: str
@@ -46,3 +56,6 @@ class AgentState(TypedDict, total=False):
     hops: int
     planner_retries: int
     specialist_system_prompt: str
+    visited_agents: list[str]
+    delegation_log: list[DelegationHop]
+    last_rationale: str

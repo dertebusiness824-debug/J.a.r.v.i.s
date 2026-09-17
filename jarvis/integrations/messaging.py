@@ -1,48 +1,70 @@
-"""Wrappers de WhatsApp Cloud API y Twilio SMS + parsing de webhooks."""
+"""Puente WhatsApp Web (whatsapp-web.js) + parsing de webhooks locales/Meta."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-import httpx
+import requests
 
 from jarvis.config import get_settings
 
 
-class WhatsAppClient:
-    """WhatsApp Cloud API. Sin token opera en modo demo."""
+def to_whatsapp_id(to: str) -> str:
+    """Normaliza E.164 o dígitos a JID de WhatsApp Web (`numero@c.us`)."""
+    value = (to or "").strip()
+    if not value:
+        return value
+    if "@" in value:
+        return value
+    digits = "".join(ch for ch in value if ch.isdigit())
+    return f"{digits}@c.us" if digits else value
 
-    GRAPH_BASE = "https://graph.facebook.com/v21.0"
+
+class WhatsAppClient:
+    """Envío vía puente local whatsapp-web.js. Si el puente no responde, modo demo."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
 
     @property
     def configured(self) -> bool:
-        return bool(self.settings.whatsapp_access_token and self.settings.whatsapp_phone_number_id)
+        return bool(self.settings.whatsapp_bridge_url)
 
     def send_text(self, to: str, body: str) -> str:
-        if not self.configured:
+        chat_id = to_whatsapp_id(to)
+        url = f"{self.settings.whatsapp_bridge_url.rstrip('/')}/send"
+        payload = {"to": chat_id, "message": body}
+        try:
+            response = requests.post(url, json=payload, timeout=20)
+            response.raise_for_status()
+            try:
+                data = response.json()
+            except ValueError:
+                data = {"raw": response.text}
+        except requests.HTTPError as exc:
+            detail = exc.response.text if exc.response is not None else str(exc)
             return json.dumps(
-                {"mode": "demo", "channel": "whatsapp", "to": to, "body": body, "status": "queued"},
+                {"ok": False, "channel": "whatsapp-web", "to": chat_id, "error": detail},
                 ensure_ascii=False,
             )
-        url = f"{self.GRAPH_BASE}/{self.settings.whatsapp_phone_number_id}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to.lstrip("+"),
-            "type": "text",
-            "text": {"body": body},
-        }
-        headers = {
-            "Authorization": f"Bearer {self.settings.whatsapp_access_token}",
-            "Content-Type": "application/json",
-        }
-        with httpx.Client(timeout=20.0) as client:
-            response = client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return json.dumps(response.json(), ensure_ascii=False)
+        except requests.RequestException as exc:
+            return json.dumps(
+                {
+                    "mode": "demo",
+                    "channel": "whatsapp-web",
+                    "to": chat_id,
+                    "body": body,
+                    "status": "queued",
+                    "error": f"puente no disponible: {exc}",
+                },
+                ensure_ascii=False,
+            )
+        if isinstance(data, dict):
+            data.setdefault("channel", "whatsapp-web")
+            data.setdefault("to", chat_id)
+            return json.dumps(data, ensure_ascii=False)
+        return json.dumps({"channel": "whatsapp-web", "to": chat_id, "result": data}, ensure_ascii=False)
 
     def verify_webhook(self, mode: str, token: str, challenge: str) -> str | None:
         expected = self.settings.whatsapp_verify_token
@@ -63,32 +85,3 @@ class WhatsAppClient:
                     if text:
                         messages.append({"from": msg.get("from", ""), "body": text, "id": msg.get("id", "")})
         return messages
-
-
-class TwilioClient:
-    """Twilio Programmable SMS. Sin credenciales opera en modo demo."""
-
-    def __init__(self) -> None:
-        self.settings = get_settings()
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.settings.twilio_account_sid and self.settings.twilio_auth_token)
-
-    def send_sms(self, to: str, body: str) -> str:
-        if not self.configured:
-            return json.dumps(
-                {"mode": "demo", "channel": "twilio_sms", "to": to, "body": body, "status": "queued"},
-                ensure_ascii=False,
-            )
-        sid = self.settings.twilio_account_sid
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        data = {"To": to, "From": self.settings.twilio_from_number or "", "Body": body}
-        with httpx.Client(timeout=20.0) as client:
-            response = client.post(
-                url,
-                data=data,
-                auth=(sid or "", self.settings.twilio_auth_token or ""),
-            )
-            response.raise_for_status()
-            return json.dumps(response.json(), ensure_ascii=False)

@@ -9,6 +9,7 @@ def test_supervisor_graph_compiles():
     assert "code_agent" in mermaid
     assert "comms_agent" in mermaid
     assert "shop_agent" in mermaid
+    assert "research_agent" in mermaid
 
 
 def test_supervisor_routes_math_to_general():
@@ -31,6 +32,16 @@ def test_supervisor_routes_whatsapp():
     assert "send_whatsapp_message" in tools_used
 
 
+def test_supervisor_routes_zadarma_sms():
+    state = run_jarvis("Envía un SMS de Zadarma al cliente del taller", session_id="t-sms")
+    assert state.get("active_agent") == "comms_agent"
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "send_zadarma_sms" in tools_used
+    assert "send_sms" not in tools_used
+    answer = extract_answer(state)
+    assert "zadarma" in answer.lower() or "demo" in answer.lower()
+
+
 def test_supervisor_routes_code_list_sandbox():
     state = run_jarvis("Lista los archivos del sandbox", session_id="t-code")
     assert state.get("active_agent") == "code_agent"
@@ -44,3 +55,58 @@ def test_same_session_reroutes_on_second_turn():
     second = run_jarvis("Lista los productos de Shopify", session_id="same-thread")
     assert second.get("active_agent") == "shop_agent"
     assert "Auriculares Jarvis" in extract_answer(second)
+
+
+def test_supervisor_passes_context_and_gets_report():
+    state = run_jarvis("Lista los productos de Shopify", session_id="t-handoff")
+    log = state.get("delegation_log") or []
+    assert log
+    assert log[0]["agent"] == "shop_agent"
+    assert "Auriculares Jarvis" in str(log[0]["result"])
+    assert "shop_agent" in (state.get("visited_agents") or [])
+
+
+def test_supervisor_chains_code_then_comms():
+    state = run_jarvis(
+        "Crea el archivo aviso.txt con el texto listo y envía un WhatsApp al equipo",
+        session_id="t-multi",
+    )
+    visited = state.get("visited_agents") or []
+    assert "code_agent" in visited
+    assert "comms_agent" in visited
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "write_file" in tools_used
+    assert "send_whatsapp_message" in tools_used
+    from jarvis.tools import read_file
+
+    assert "listo" in read_file.invoke({"path": "aviso.txt"}).lower() or "aviso" in extract_answer(state).lower()
+
+
+def test_supervisor_routes_research_osint(monkeypatch):
+    monkeypatch.setattr(
+        "jarvis.agents.research_agent._tavily_search",
+        lambda _query: None,
+    )
+    monkeypatch.setattr(
+        "jarvis.agents.research_agent._duckduckgo_search",
+        lambda query: [
+            {
+                "title": "Ada Lovelace",
+                "snippet": "Matemática y pionera de la programación.",
+                "url": "https://example.com/ada",
+            }
+        ],
+    )
+    state = run_jarvis(
+        "Investiga a Ada Lovelace en Google y recopila información pública",
+        session_id="t-osint",
+    )
+    assert state.get("active_agent") == "research_agent"
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "web_search" in tools_used
+    log = state.get("delegation_log") or []
+    assert log
+    assert log[0]["agent"] == "research_agent"
+    assert "research_agent" in (state.get("visited_agents") or [])
+    answer = extract_answer(state)
+    assert "Ada" in answer or "demo" in answer.lower() or "información" in answer.lower()

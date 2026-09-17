@@ -29,11 +29,30 @@ class TaskOut(BaseModel):
 class InvokeResponse(BaseModel):
     answer: str
     agent: str
+    visited_agents: list[str] = Field(default_factory=list)
     plan: list[TaskOut] = Field(default_factory=list)
     tool_results: list[ToolResultOut] = Field(default_factory=list)
     retrieved_context: str = ""
     error: str | None = None
     offline: bool = False
+
+
+class DirectiveRequest(BaseModel):
+    command: str = Field(default="", description="Orden escrita desde el HUD (commandInput).")
+    message: str = Field(default="", description="Alias de command.")
+    session_id: str = Field(default="hud", description="Hilo de conversación.")
+
+    def text(self) -> str:
+        return (self.command or self.message or "").strip()
+
+
+class InboxStatusResponse(BaseModel):
+    whatsapp: int = 0
+    correo: int = 0
+    gmail: int = 0
+    webmail: int = 0
+    total: int = 0
+    pending: int = 0
 
 
 class HealthResponse(BaseModel):

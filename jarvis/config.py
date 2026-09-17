@@ -35,10 +35,12 @@ class Settings(BaseSettings):
     shopify_access_token: str | None = None
     shopify_api_version: str = "2024-10"
 
-    twilio_account_sid: str | None = None
-    twilio_auth_token: str | None = None
-    twilio_from_number: str | None = None
+    zadarma_key: str | None = None
+    zadarma_secret: str | None = None
+    zadarma_pbx_id: str | None = None
 
+    whatsapp_bridge_url: str = "http://127.0.0.1:3000"
+    whatsapp_allowed_number: str = "34605686509"
     whatsapp_verify_token: str | None = None
     whatsapp_access_token: str | None = None
     whatsapp_phone_number_id: str | None = None
@@ -47,6 +49,26 @@ class Settings(BaseSettings):
     jarvis_port: int = 8000
     jarvis_max_iterations: int = 8
     jarvis_recursion_limit: int = 25
+    jarvis_db_path: str = "./data/jarvis.db"
+    jarvis_public_url: str = "https://j-a-r-v-i-s-yghr.onrender.com"
+
+    email_host: str | None = None
+    email_user: str | None = None
+    email_pass: str | None = None
+    email_port: int = 993
+    email_folder: str = "INBOX"
+    email_use_ssl: bool = True
+
+    vapi_public_key: str | None = None
+    vapi_assistant_id: str | None = None
+    vapi_webhook_secret: str | None = None
+
+    cartesia_api_key: str | None = None
+    cartesia_voice_id: str | None = None
+    cartesia_model: str = "sonic-3.6"
+
+    tavily_api_key: str | None = None
+    hunter_api_key: str | None = None
 
     @property
     def workspace_path(self) -> Path:
@@ -63,6 +85,14 @@ class Settings(BaseSettings):
             path = ROOT_DIR / path
         path.mkdir(parents=True, exist_ok=True)
         return path.resolve()
+
+    @property
+    def database_url(self) -> str:
+        path = Path(self.jarvis_db_path)
+        if not path.is_absolute():
+            path = ROOT_DIR / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite:///{path.resolve()}"
 
     @property
     def has_llm_credentials(self) -> bool:

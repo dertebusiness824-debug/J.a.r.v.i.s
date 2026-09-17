@@ -1,6 +1,8 @@
-"""Integraciones externas (Shopify, WhatsApp, Twilio)."""
+"""Integraciones externas (Shopify, WhatsApp Web, Zadarma, Cartesia)."""
 
-from jarvis.integrations.messaging import TwilioClient, WhatsAppClient
+from jarvis.integrations.cartesia import CartesiaClient
+from jarvis.integrations.messaging import WhatsAppClient
 from jarvis.integrations.shopify_client import ShopifyClient
+from jarvis.integrations.zadarma import ZadarmaClient
 
-__all__ = ["ShopifyClient", "WhatsAppClient", "TwilioClient"]
+__all__ = ["ShopifyClient", "WhatsAppClient", "ZadarmaClient", "CartesiaClient"]

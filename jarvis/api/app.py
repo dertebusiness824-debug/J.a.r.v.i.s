@@ -6,21 +6,36 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from jarvis import __version__
 from jarvis.agent_core import extract_answer
-from jarvis.api.schemas import HealthResponse, InvokeRequest, InvokeResponse, TaskOut, ToolResultOut
+from jarvis.api.schemas import (
+    DirectiveRequest,
+    HealthResponse,
+    InboxStatusResponse,
+    InvokeRequest,
+    InvokeResponse,
+    TaskOut,
+    ToolResultOut,
+)
+from jarvis.db import inbox_status, init_db
 from jarvis.config import get_settings
-from jarvis.integrations.messaging import TwilioClient, WhatsAppClient
+from jarvis.api.vapi_routes import router as vapi_router
+from jarvis.integrations.messaging import WhatsAppClient
+from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
+from jarvis.api.whatsapp_local import attach_whatsapp_local_webhook
+from jarvis.api.vapi_events import attach_vapi_events
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     app.state.graph = compile_supervisor_graph()
     yield
 
@@ -32,6 +47,14 @@ def create_app() -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(vapi_router)
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -41,7 +64,13 @@ def create_app() -> FastAPI:
         page = STATIC_DIR / "index.html"
         if not page.exists():
             raise HTTPException(status_code=404, detail="UI no encontrada")
-        return FileResponse(page)
+        return FileResponse(
+            page,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
 
     @app.get("/health", response_model=HealthResponse, tags=["ops"])
     def health() -> HealthResponse:
@@ -50,7 +79,14 @@ def create_app() -> FastAPI:
             status="ok",
             version=__version__,
             offline=settings.offline,
-            agents=["supervisor", "code_agent", "comms_agent", "shop_agent", "general"],
+            agents=[
+                "supervisor",
+                "code_agent",
+                "comms_agent",
+                "shop_agent",
+                "research_agent",
+                "general",
+            ],
         )
 
     @app.get("/graph", tags=["ops"])
@@ -64,12 +100,38 @@ def create_app() -> FastAPI:
         return InvokeResponse(
             answer=extract_answer(result),
             agent=str(result.get("active_agent") or result.get("next_agent") or "supervisor"),
+            visited_agents=list(result.get("visited_agents") or []),
             plan=[TaskOut(**t) for t in (result.get("plan") or [])],
             tool_results=[ToolResultOut(**r) for r in (result.get("tool_results") or [])],
             retrieved_context=result.get("retrieved_context") or "",
             error=result.get("error"),
             offline=settings.offline,
         )
+
+    @app.post("/api/jarvis/directive", tags=["hud"])
+    def jarvis_directive(payload: DirectiveRequest) -> dict:
+        text = payload.text()
+        if not text:
+            raise HTTPException(status_code=400, detail="Falta command o message.")
+        settings = get_settings()
+        result = run_jarvis(text, session_id=payload.session_id or "hud")
+        answer = extract_answer(result)
+        agent = str(result.get("active_agent") or result.get("next_agent") or "supervisor")
+        return {
+            "ok": True,
+            "answer": answer,
+            "agent": agent,
+            "visited_agents": list(result.get("visited_agents") or []),
+            "plan": [TaskOut(**t).model_dump() for t in (result.get("plan") or [])],
+            "tool_results": [ToolResultOut(**r).model_dump() for r in (result.get("tool_results") or [])],
+            "error": result.get("error"),
+            "offline": settings.offline,
+            "lines": [f"> {text}", f"[{agent}] {answer}"],
+        }
+
+    @app.get("/api/jarvis/inbox-status", response_model=InboxStatusResponse, tags=["hud"])
+    def jarvis_inbox_status() -> InboxStatusResponse:
+        return InboxStatusResponse(**inbox_status())
 
     @app.get("/webhooks/whatsapp", tags=["webhooks"])
     def whatsapp_verify(
@@ -97,31 +159,44 @@ def create_app() -> FastAPI:
             replies.append({"from": msg.get("from"), "answer": answer})
         return {"ok": True, "processed": len(replies), "replies": replies}
 
-    @app.post("/webhooks/twilio", tags=["webhooks"])
-    async def twilio_inbound(request: Request) -> Response:
-        form = await request.form()
-        body = str(form.get("Body") or "")
-        sender = str(form.get("From") or "")
-        if not body:
-            return Response(content="<Response></Response>", media_type="application/xml")
-        result = run_jarvis(body, session_id=f"twilio:{sender or 'unknown'}")
-        answer = extract_answer(result)
-        if sender:
-            TwilioClient().send_sms(to=sender, body=answer)
-        xml = f"<Response><Message>{_xml_escape(answer)}</Message></Response>"
-        return Response(content=xml, media_type="application/xml")
+    attach_whatsapp_local_webhook(app)
+    attach_vapi_events(app)
+
+    @app.get("/webhooks/zadarma", tags=["webhooks"])
+    async def zadarma_verify(zd_echo: str | None = Query(default=None)) -> Response:
+        """Verificación de webhook PBX: Zadarma envía GET ?zd_echo=... y espera el eco."""
+        if zd_echo:
+            return PlainTextResponse(zd_echo)
+        return PlainTextResponse("ok")
+
+    @app.post("/webhooks/zadarma", tags=["webhooks"])
+    async def zadarma_inbound(request: Request) -> dict:
+        """Placeholder de centralita: registra NOTIFY_* para el Supervisor (llamadas del taller)."""
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "application/json" in content_type:
+            raw = await request.json()
+            payload = dict(raw) if isinstance(raw, dict) else {}
+        else:
+            form = await request.form()
+            payload = {str(k): str(v) for k, v in form.items()}
+
+        client = ZadarmaClient()
+        signature = (
+            request.headers.get("Signature")
+            or request.headers.get("signature")
+            or str(payload.get("signature") or "")
+        )
+        if not client.verify_webhook_signature(payload, signature or None):
+            raise HTTPException(status_code=403, detail="Firma Zadarma inválida")
+
+        event = client.extract_event(payload)
+        recorded = False
+        if event["event"] in INBOUND_EVENTS:
+            client.record_inbound(event)
+            recorded = True
+        return {"ok": True, "provider": "zadarma", "recorded": recorded, "event": event}
 
     return app
-
-
-def _xml_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
 
 
 app = create_app()
