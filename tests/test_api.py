@@ -40,7 +40,9 @@ def test_health_and_docs():
     assert "cdn.tailwindcss.com" in hud.text
     assert "backdrop-blur-md" in hud.text
     assert "font-mono" in hud.text
-    assert "JSON.stringify(error, null, 2)" in hud.text
+    assert "/static/format-error.js" in hud.text
+    assert "terminalMessages" in hud.text
+    assert "console.error" in hud.text
     assert "max-h-[40vh]" in hud.text
     assert "flex-1" in hud.text
     assert "from-orange-500" in hud.text

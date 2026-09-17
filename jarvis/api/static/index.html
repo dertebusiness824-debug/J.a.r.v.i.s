@@ -136,6 +136,7 @@
       </form>
     </div>
 
+    <script src="/static/format-error.js"></script>
     <script>
       const terminal = document.getElementById("terminal");
       const input = document.getElementById("commandInput");
@@ -176,30 +177,13 @@
       }
       window.setCallStatus = setCallStatus;
 
-      function formatError(error) {
-        if (error == null) return "error desconocido";
-        if (typeof error === "string") return error;
-        if (error instanceof Error && error.message) return error.message;
-        if (typeof error === "object") {
-          if (typeof error.message === "string" && error.message) return error.message;
-          if (typeof error.error === "string" && error.error) return error.error;
-          if (error.error && typeof error.error === "object") {
-            if (error.error.message) return String(error.error.message);
-            try {
-              return JSON.stringify(error.error, null, 2);
-            } catch (_err) {}
-          }
-          try {
-            return JSON.stringify(error, null, 2);
-          } catch (_err) {
-            return String(error);
-          }
-        }
-        return String(error);
-      }
+      const terminalMessages = [
+        "J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.",
+      ];
 
       function log(line) {
-        terminal.textContent += "\n" + line;
+        terminalMessages.push(String(line));
+        terminal.textContent = terminalMessages.join("\n");
         terminal.scrollTop = terminal.scrollHeight;
       }
 
@@ -358,7 +342,9 @@
               if (isCallActive) setCallStatus("listening");
             });
             vapi.on("error", (err) => {
-              log("ERROR Vapi " + formatError(err));
+              const text = formatError(err);
+              console.error("ERROR Vapi", text, err);
+              log("ERROR Vapi " + text);
             });
             vapi.on("message", (msg) => {
               if (!msg || msg.type !== "transcript" || !msg.transcript) return;
