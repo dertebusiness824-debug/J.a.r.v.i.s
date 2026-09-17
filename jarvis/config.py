@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     jarvis_max_iterations: int = 8
     jarvis_recursion_limit: int = 25
 
+    vapi_public_key: str | None = None
+    vapi_assistant_id: str | None = None
+    vapi_webhook_secret: str | None = None
+
+    cartesia_api_key: str | None = None
+    cartesia_voice_id: str | None = None
+    cartesia_model: str = "sonic-3.6"
+
     @property
     def workspace_path(self) -> Path:
         path = Path(self.workspace_root)

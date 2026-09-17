@@ -1,0 +1,100 @@
+from fastapi.testclient import TestClient
+
+from jarvis.api.app import create_app
+
+
+def test_vapi_empty_payload_ready():
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={})
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == "Sistema listo."
+    probe = client.get("/webhooks/vapi-llm")
+    assert probe.status_code == 200
+    assert probe.json()["status"] == "ok"
+
+
+def test_vapi_custom_llm_calculator_is_spoken():
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/vapi-llm",
+        json={
+            "call": {"id": "voice-calc"},
+            "messages": [
+                {"role": "system", "content": "vapi"},
+                {"role": "user", "content": "¿Cuánto es 17 * 24?"},
+            ],
+        },
+    )
+    assert res.status_code == 200
+    spoken = res.json()["choices"][0]["message"]["content"]
+    assert "408" in spoken
+    assert "*" not in spoken
+    assert "```" not in spoken
+
+
+def test_vapi_server_url_shopify_payload():
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/vapi-llm",
+        json={
+            "message": {
+                "messages": [{"role": "user", "content": "Lista los productos de Shopify"}]
+            },
+            "call": {"id": "voice-shop"},
+        },
+    )
+    assert res.status_code == 200
+    spoken = res.json()["choices"][0]["message"]["content"]
+    assert "Inventario revisado" in spoken
+    assert "{" not in spoken
+
+
+def test_vapi_stream_sse():
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm",
+        json={"stream": True, "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]},
+    ) as res:
+        assert res.status_code == 200
+        body = "".join(res.iter_text())
+    assert "text/event-stream" in res.headers["content-type"]
+    assert "data:" in body
+    assert "[DONE]" in body
+    assert "4" in body
+
+
+def test_voice_config_and_assistant_blueprint():
+    client = TestClient(create_app())
+    cfg = client.get("/voice/config")
+    assert cfg.status_code == 200
+    assert cfg.json()["custom_llm_path"] == "/webhooks/vapi-llm"
+    blueprint = client.get("/voice/vapi-assistant")
+    assert blueprint.status_code == 200
+    data = blueprint.json()
+    assert data["model"]["provider"] == "custom-llm"
+    assert data["voice"]["provider"] == "cartesia"
+    assert "/webhooks/vapi-llm" in data["model"]["url"]
+
+
+def test_voice_tts_without_cartesia():
+    client = TestClient(create_app())
+    res = client.post("/voice/tts", json={"text": "Hola"})
+    assert res.status_code == 503
+
+
+def test_vapi_rejects_bad_secret(monkeypatch):
+    monkeypatch.setenv("VAPI_WEBHOOK_SECRET", "s3cret")
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+    denied = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
+    assert denied.status_code == 401
+    ok = client.post(
+        "/webhooks/vapi-llm",
+        headers={"Authorization": "Bearer s3cret"},
+        json={"messages": [{"role": "user", "content": "¿Cuánto es 2+2?"}]},
+    )
+    assert ok.status_code == 200
+    get_settings.cache_clear()

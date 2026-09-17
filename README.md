@@ -9,7 +9,27 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 - **Ejecución / function calling:** GPT-4o
 - **Memoria:** ChromaDB local (fallback in-memory)
 - **API:** FastAPI asíncrono
-- **Frontend/Voz:** Fase 2 (Next.js + Vapi). Esta fase incluye un playground mínimo en `/`
+- **Voz:** Vapi (orquestación WebRTC + Custom LLM) y Cartesia Sonic (TTS de baja latencia)
+
+## Estructura
+
+```
+jarvis/
+  supervisor.py        # Router: decide, pasa contexto, espera reporte
+  voice.py             # Frases hablables (sin Markdown) para TTS
+  agents/
+    code_agent.py
+    comms_agent.py
+    shop_agent.py
+    general.py
+  api/
+    vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
+    app.py
+  integrations/
+    cartesia.py
+```
+
+En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm`, voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
 
 ## Estructura
 
@@ -67,4 +87,4 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/twilio`.
+Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/twilio`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`.

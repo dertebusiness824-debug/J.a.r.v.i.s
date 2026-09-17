@@ -74,8 +74,18 @@
         padding: 16px;
         min-height: 160px;
       }
-      .meta { color: var(--muted); font-size: 13px; margin: 16px 0 8px; }
-      .badge { color: var(--warn); }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+      button.ghost {
+        background: transparent;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+      }
+      .spoken {
+        font-size: 18px;
+        line-height: 1.45;
+        min-height: 72px;
+      }
+
     </style>
   </head>
   <body>
@@ -91,16 +101,88 @@
           Prompt
           <textarea id="message">¿Cuánto es 17 * 24?</textarea>
         </label>
-        <button type="submit" id="go">Ejecutar</button>
+        <div class="row">
+          <button type="submit" id="go">Ejecutar</button>
+          <button type="button" class="ghost" id="voice">Simular voz</button>
+          <button type="button" class="ghost" id="mic">Micrófono</button>
+        </div>
       </form>
-      <p class="meta">Respuesta <span id="agent" class="badge"></span></p>
+      <p class="meta">Voz (Vapi Custom LLM → Cartesia/TTS) <span id="agent" class="badge"></span></p>
+      <pre id="spoken" class="spoken">Sistema listo. Dime en qué te ayudo.</pre>
+      <p class="meta">JSON técnico</p>
       <pre id="out">Listo.</pre>
     </main>
     <script>
       const form = document.getElementById("f");
       const out = document.getElementById("out");
       const agent = document.getElementById("agent");
+      const spoken = document.getElementById("spoken");
+      const voiceBtn = document.getElementById("voice");
+      const micBtn = document.getElementById("mic");
       const go = document.getElementById("go");
+
+      function speak(text) {
+        spoken.textContent = text;
+        if (!window.speechSynthesis) return;
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "es-ES";
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utter);
+      }
+
+      async function invokeVoice(text) {
+        const res = await fetch("/webhooks/vapi-llm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: document.getElementById("session").value,
+            messages: [
+              { role: "system", content: "voice" },
+              { role: "user", content: text },
+            ],
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        const line = data.choices?.[0]?.message?.content || "Sin respuesta.";
+        speak(line);
+        return data;
+      }
+
+      voiceBtn.addEventListener("click", async () => {
+        voiceBtn.disabled = true;
+        spoken.textContent = "Escuchando al Supervisor…";
+        try {
+          await invokeVoice(document.getElementById("message").value);
+        } catch (err) {
+          spoken.textContent = String(err);
+        } finally {
+          voiceBtn.disabled = false;
+        }
+      });
+
+      micBtn.addEventListener("click", () => {
+        const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Rec) {
+          spoken.textContent = "Este navegador no expone reconocimiento de voz. Usa Simular voz.";
+          return;
+        }
+        const rec = new Rec();
+        rec.lang = "es-ES";
+        rec.onresult = async (event) => {
+          const text = event.results[0][0].transcript;
+          document.getElementById("message").value = text;
+          spoken.textContent = "Te escuché. Procesando…";
+          try {
+            await invokeVoice(text);
+          } catch (err) {
+            spoken.textContent = String(err);
+          }
+        };
+        rec.start();
+        spoken.textContent = "Habla ahora…";
+      });
+
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         go.disabled = true;

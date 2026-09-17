@@ -13,6 +13,7 @@ from jarvis import __version__
 from jarvis.agent_core import extract_answer
 from jarvis.api.schemas import HealthResponse, InvokeRequest, InvokeResponse, TaskOut, ToolResultOut
 from jarvis.config import get_settings
+from jarvis.api.vapi_routes import router as vapi_router
 from jarvis.integrations.messaging import TwilioClient, WhatsAppClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
 
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+    app.include_router(vapi_router)
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
