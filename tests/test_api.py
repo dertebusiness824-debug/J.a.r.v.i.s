@@ -121,7 +121,8 @@ def test_health_and_docs():
     assert "talkBtn.textContent" not in hud.text
     # Prompt de consola con cursor parpadeante justo detrás del log.
     assert 'id="terminalCaret"' in hud.text
-    assert "h-4 w-2 animate-pulse bg-green-500" in hud.text
+    assert "animate-caret inline-block h-4 w-2 bg-green-500" in hud.text
+    assert "@keyframes caret" in hud.text
     assert "supervisor@jarvis:~$" in hud.text
     assert 'id="terminalText"' in hud.text
     assert "terminalText.textContent = terminalMessages.join" in hud.text

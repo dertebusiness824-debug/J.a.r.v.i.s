@@ -60,6 +60,14 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+      /* `animate-pulse` solo baja al 50 % de opacidad en 2 s: en un bloque de 8 px
+         eso no se lee como un cursor de consola, así que enciende y apaga. */
+      @keyframes caret {
+        0%, 45% { opacity: 1; }
+        50%, 95% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+      .animate-caret { animation: caret 1.1s steps(1, end) infinite; }
       .animate-breath { animation: breath 2.4s ease-in-out infinite; }
       .animate-glitch { animation: glitch 1.8s steps(2, end) infinite; }
       .scanlines {
@@ -220,7 +228,7 @@
             id="terminal"
             class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-emerald-100/90"
           ><span id="terminalText">J.A.R.V.I.S. listo. Pulsa el núcleo o escribe una directiva.</span>
-<span class="text-green-500">supervisor@jarvis:~$ </span><span id="terminalCaret" class="inline-block h-4 w-2 animate-pulse bg-green-500 align-text-bottom" aria-hidden="true"></span></pre>
+<span class="text-green-500">supervisor@jarvis:~$ </span><span id="terminalCaret" class="animate-caret inline-block h-4 w-2 bg-green-500 align-text-bottom" aria-hidden="true"></span></pre>
         </section>
       </main>
 
