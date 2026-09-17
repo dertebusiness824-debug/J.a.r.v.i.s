@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -41,6 +42,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Sin esto, uvicorn deja el logger raíz sin handlers y los INFO de Vapi no salen por terminal.
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     app = FastAPI(
         title="Jarvis v2.0",
         description="Sistema multi-agente (Supervisor + especialistas) con LangGraph.",

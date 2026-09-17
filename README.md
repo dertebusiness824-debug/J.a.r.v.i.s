@@ -101,6 +101,8 @@ flowchart TD
 
 Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`, `POST /webhooks/vapi-llm/chat/completions`. CORS: `allow_origins=["*"]`.
 
+El Custom LLM de Vapi responde SSE al estilo OpenAI (`chat.completion.chunk` → `finish_reason: "stop"` → `data: [DONE]`). Mientras LangGraph piensa, el stream manda comentarios `: keep-alive` y, si el Supervisor pasa de `VAPI_RESPONSE_TIMEOUT_SECONDS` (30 s por defecto), contesta una frase de espera en vez de dejar la petición colgada: así Vapi nunca cierra con «Assistant Did Not Receive Response».
+
 ## Producción (Railway / Render)
 
 ```bash

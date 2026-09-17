@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Comentario SSE: el cliente lo ignora, pero mantiene viva la conexión mientras
+# LangGraph trabaja, así Vapi no cierra la llamada con "Did Not Receive Response".
+KEEPALIVE = ": keep-alive\n\n"
+SLOW_REPLY = "Sigo procesando la petición, señor. Dame unos segundos y pregúntame de nuevo."
+ERROR_REPLY = "He encontrado un error de procesamiento."
+
 
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
@@ -115,9 +121,9 @@ def _text_fragments(content: str) -> list[str]:
         return [" "]
     parts: list[str] = []
     buf = ""
-    for word in text.split(" "):
-        piece = word if not buf else f" {word}"
-        buf += piece
+    # El espacio viaja con la palabra siguiente: unir los deltas debe reproducir el texto.
+    for index, word in enumerate(text.split(" ")):
+        buf += word if index == 0 else f" {word}"
         if len(buf) >= 28:
             parts.append(buf)
             buf = ""
@@ -174,12 +180,43 @@ async def _sse_openai_chunks(
     yield "data: [DONE]\n\n"
 
 
+async def _supervisor_spoken(user_text: str, session_id: str) -> str:
+    """Supervisor LangGraph (bloqueante) en un hilo, ya convertido a frase hablable."""
+    if not user_text:
+        return "Sistema listo."
+    result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
+    return spoken_from_state(result)
+
+
+def _budget() -> tuple[float, float]:
+    settings = get_settings()
+    return (
+        max(float(settings.vapi_response_timeout_seconds), 1.0),
+        max(float(settings.vapi_keepalive_seconds), 0.1),
+    )
+
+
+def _detach(task: "asyncio.Future[str]") -> None:
+    """El hilo del Supervisor no se puede cancelar: consume su resultado tardío."""
+
+    def _drain(done: "asyncio.Future[str]") -> None:
+        if done.cancelled():
+            return
+        error = done.exception()
+        if error is not None:
+            logger.error("Vapi: el Supervisor falló tras el timeout", exc_info=error)
+        else:
+            logger.info("Vapi: el Supervisor respondió tarde; se descarta el texto.")
+
+    task.add_done_callback(_drain)
+
+
 async def _sse_supervisor_reply(
     user_text: str,
     session_id: str,
     completion_id: str,
 ) -> AsyncIterator[str]:
-    """Primer chunk inmediato (Vapi no corta) y luego el Supervisor."""
+    """Primer chunk inmediato, heartbeat mientras piensa y texto con tope de tiempo."""
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     yield _openai_chunk(
@@ -188,15 +225,26 @@ async def _sse_supervisor_reply(
         delta={"role": "assistant"},
         finish_reason=None,
     )
-    try:
-        if not user_text:
-            spoken = "Sistema listo."
-        else:
-            result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
-            spoken = spoken_from_state(result)
-    except Exception:
-        logger.exception("Error en Vapi Custom LLM")
-        spoken = "He encontrado un error de procesamiento."
+    timeout, beat = _budget()
+    task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _detach(task)
+            logger.error("Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.", timeout)
+            spoken = SLOW_REPLY
+            break
+        try:
+            spoken = await asyncio.wait_for(asyncio.shield(task), timeout=min(beat, remaining))
+            break
+        except asyncio.TimeoutError:
+            if time.monotonic() < deadline:
+                yield KEEPALIVE
+        except Exception:
+            logger.exception("Error en Vapi Custom LLM")
+            spoken = ERROR_REPLY
+            break
     async for chunk in _sse_openai_chunks(
         spoken, completion_id=cid, created=created, include_role=False
     ):
@@ -244,11 +292,14 @@ async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
                 media_type="text/event-stream",
                 headers=_sse_headers(),
             )
-        if not user_text:
-            spoken = "Sistema listo."
-        else:
-            result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
-            spoken = spoken_from_state(result)
+        timeout, _beat = _budget()
+        task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
+        try:
+            spoken = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        except asyncio.TimeoutError:
+            _detach(task)
+            logger.error("Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.", timeout)
+            spoken = SLOW_REPLY
         return openai_completion(spoken, completion_id=completion_id)
     except HTTPException:
         raise
@@ -257,13 +308,13 @@ async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
         if force_stream:
             return StreamingResponse(
                 _sse_openai_chunks(
-                    "He encontrado un error de procesamiento.",
+                    ERROR_REPLY,
                     completion_id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
                 ),
                 media_type="text/event-stream",
                 headers=_sse_headers(),
             )
-        return openai_completion("He encontrado un error de procesamiento.")
+        return openai_completion(ERROR_REPLY)
 
 
 @router.post("/webhooks/vapi-llm", tags=["vapi"])

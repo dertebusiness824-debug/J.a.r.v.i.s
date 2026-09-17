@@ -1,6 +1,28 @@
+import asyncio
+import json
+import time
+
 from fastapi.testclient import TestClient
 
 from jarvis.api.app import create_app
+from jarvis.api.vapi_routes import SLOW_REPLY
+
+
+def _slow_supervisor(delay: float):
+    def _run(text, session_id=None):
+        time.sleep(delay)
+        return {"final_answer": f"Listo tras {delay} segundos."}
+
+    return _run
+
+
+def _sse_content(line: str) -> str:
+    """Texto del delta de un chunk OpenAI; '' para keep-alives y para [DONE]."""
+    if not line.startswith("data: ") or line.strip() == "data: [DONE]":
+        return ""
+    chunk = json.loads(line[len("data: ") :])
+    assert chunk["object"] == "chat.completion.chunk"
+    return str(chunk["choices"][0]["delta"].get("content") or "")
 
 
 def test_vapi_empty_payload_ready():
@@ -91,6 +113,81 @@ def test_vapi_openai_path_aliases_stream():
             body = "".join(res.iter_text())
         assert "4" in body, path
         assert "data: [DONE]" in body, path
+
+
+def test_vapi_sse_sends_keepalive_while_supervisor_thinks(monkeypatch):
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.05")
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(0.3))
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={"stream": True, "messages": [{"role": "user", "content": "hola"}]},
+    ) as res:
+        assert res.status_code == 200
+        lines = [line for line in res.iter_lines() if line.strip()]
+    assert ": keep-alive" in lines
+    assert "".join(_sse_content(line) for line in lines) == "Listo tras 0.3 segundos."
+    assert lines[-1] == "data: [DONE]"
+    get_settings.cache_clear()
+
+
+def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
+    """El stream cierra al vencer el presupuesto, no cuando el Supervisor acaba."""
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
+    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(4))
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+
+    async def collect() -> list[tuple[float, str]]:
+        started = time.monotonic()
+        events = []
+        async for chunk in _sse_supervisor_reply("hola", "test", "chatcmpl-test"):
+            events.append((time.monotonic() - started, chunk))
+        return events
+
+    events = asyncio.run(collect())
+    lines = [line for _at, chunk in events for line in chunk.splitlines() if line.strip()]
+    spoken = "".join(_sse_content(line) for line in lines)
+    assert events[0][0] < 0.5, "el primer chunk debe salir de inmediato"
+    assert events[-1][0] < 2.5, "el stream no debe esperar a que el Supervisor termine"
+    assert spoken == SLOW_REPLY
+    assert ": keep-alive" in lines
+    assert '"finish_reason": "stop"' in " ".join(lines)
+    assert lines[-1] == "data: [DONE]"
+    get_settings.cache_clear()
+
+
+def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(3))
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/vapi-llm",
+        json={"messages": [{"role": "user", "content": "hola"}]},
+    )
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == SLOW_REPLY
+    get_settings.cache_clear()
+
+
+def test_vapi_sse_deltas_rebuild_the_sentence_verbatim():
+    from jarvis.api.vapi_routes import _text_fragments
+
+    text = "Sigo procesando la petición, señor. Dame unos segundos y pregúntame de nuevo."
+    fragments = _text_fragments(text)
+    assert len(fragments) > 1
+    assert "".join(fragments) == text
 
 
 def test_vapi_chat_completions_get_probe():
