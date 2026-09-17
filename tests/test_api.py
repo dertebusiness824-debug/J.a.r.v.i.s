@@ -70,6 +70,9 @@ def test_health_and_docs():
     assert "metadataSendMode" in hud.text
     assert "@vapi-ai/web@2.6.3" in hud.text
     assert "vapi.start(assistant)" in hud.text
+    assert "if (!call" in hud.text
+    assert "await vapi.stop()" in hud.text
+    assert "lastVapiError" in hud.text
 
 
 def test_directive_and_inbox_status():

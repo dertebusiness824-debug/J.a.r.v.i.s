@@ -158,6 +158,8 @@
       let isCallActive = false;
       let callStatus = "idle";
       let talkMode = "browser";
+      let lastVapiError = "";
+      let voiceBusy = false;
       const netLayer = document.getElementById("netLayer");
       const NET_BASE =
         "pointer-events-none absolute inset-0 -z-10 object-cover transition-opacity duration-1000 ease-in-out";
@@ -278,8 +280,20 @@
 
       async function toggleVapiCall() {
         if (!vapi) return startBrowserVoice();
-        if (inCall) {
-          vapi.stop();
+        if (voiceBusy) return;
+        if (inCall || isCallActive) {
+          voiceBusy = true;
+          talkStatus.textContent = "Colgando…";
+          try {
+            await vapi.stop();
+          } catch (err) {
+            log("ERROR voz " + formatError(err));
+          } finally {
+            voiceBusy = false;
+            setCallStatus("idle");
+            setTalk("HABLAR", false);
+            talkStatus.textContent = "Llamada terminada. Pulsa HABLAR para continuar.";
+          }
           return;
         }
         talkStatus.textContent = "Conectando con Jarvis…";
@@ -308,23 +322,24 @@
           transcriber,
           voice,
         };
+        voiceBusy = true;
         try {
-          // Ephemeral assistant: HABLAR no depende de la URL Custom LLM del dashboard.
-          await vapi.start(assistant);
-        } catch (firstErr) {
-          log("ERROR voz " + formatError(firstErr));
-          if (voiceCfg.vapi_assistant_id) {
-            try {
-              await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
-              return;
-            } catch (secondErr) {
-              log("ERROR voz " + formatError(secondErr));
-            }
+          // El SDK 2.6 devuelve null si falla (no lanza). HABLAR no usa la URL del dashboard.
+          let call = await vapi.start(assistant);
+          if (!call && voiceCfg.vapi_assistant_id) {
+            call = await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
           }
+          if (!call) {
+            throw new Error(lastVapiError || "Vapi no inició la llamada.");
+          }
+        } catch (err) {
           setCallStatus("idle");
           setTalk("HABLAR", false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
+          log("ERROR voz " + formatError(err));
           startBrowserVoice();
+        } finally {
+          voiceBusy = false;
         }
       }
 
@@ -360,6 +375,7 @@
             });
             vapi.on("error", (err) => {
               const text = formatError(err);
+              lastVapiError = text;
               console.error("ERROR Vapi", text, err);
               log("ERROR Vapi " + text);
             });
