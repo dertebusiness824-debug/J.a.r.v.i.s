@@ -78,9 +78,13 @@ class SendWhatsAppInput(BaseModel):
     body: str = Field(description="Texto del mensaje de WhatsApp.")
 
 
-class SendSmsInput(BaseModel):
+class SendZadarmaSmsInput(BaseModel):
     to: str = Field(description="Número E.164 del destinatario.")
     body: str = Field(description="Texto del SMS.")
+    sender: str | None = Field(
+        default=None,
+        description="Caller ID / SenderID Zadarma opcional (número verificado o alfanumérico).",
+    )
 
 
 class ShopifyProductsInput(BaseModel):
@@ -228,12 +232,12 @@ def send_whatsapp_message(to: str, body: str) -> str:
     return WhatsAppClient().send_text(to=to, body=body)
 
 
-@tool("send_sms", args_schema=SendSmsInput)
-def send_sms(to: str, body: str) -> str:
-    """Envía un SMS vía Twilio. En modo demo, simula el envío."""
-    from jarvis.integrations.messaging import TwilioClient
+@tool("send_zadarma_sms", args_schema=SendZadarmaSmsInput)
+def send_zadarma_sms(to: str, body: str, sender: str | None = None) -> str:
+    """Envía un SMS vía Zadarma PBX (API REST firmada). En modo demo, simula el envío."""
+    from jarvis.integrations.zadarma import ZadarmaClient
 
-    return TwilioClient().send_sms(to=to, body=body)
+    return ZadarmaClient().send_sms(to=to, body=body, sender=sender)
 
 
 @tool("shopify_list_products", args_schema=ShopifyProductsInput)
@@ -262,7 +266,7 @@ def shopify_inventory_summary(product_id: str | None = None) -> str:
 
 CORE_TOOLS = [get_current_time, calculate_expression]
 CODE_TOOLS = [read_file, write_file, list_directory, run_terminal, *CORE_TOOLS]
-COMMS_TOOLS = [send_whatsapp_message, send_sms, get_current_time]
+COMMS_TOOLS = [send_whatsapp_message, send_zadarma_sms, get_current_time]
 SHOP_TOOLS = [
     shopify_list_products,
     shopify_list_orders,
@@ -277,7 +281,7 @@ ALL_TOOLS = [
     list_directory,
     run_terminal,
     send_whatsapp_message,
-    send_sms,
+    send_zadarma_sms,
     shopify_list_products,
     shopify_list_orders,
     shopify_inventory_summary,

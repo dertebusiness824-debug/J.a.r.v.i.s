@@ -15,7 +15,7 @@ def test_code_agent_owns_filesystem_tools():
 
 def test_comms_agent_owns_messaging_tools():
     names = {t.name for t in COMMS_TOOLS}
-    assert {"send_whatsapp_message", "send_sms"} <= names
+    assert {"send_whatsapp_message", "send_zadarma_sms"} <= names
 
 
 def test_shop_agent_owns_shopify_tools():

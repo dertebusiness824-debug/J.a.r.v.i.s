@@ -15,7 +15,8 @@ from jarvis.agent_core import extract_answer
 from jarvis.api.schemas import HealthResponse, InvokeRequest, InvokeResponse, TaskOut, ToolResultOut
 from jarvis.config import get_settings
 from jarvis.api.vapi_routes import router as vapi_router
-from jarvis.integrations.messaging import TwilioClient, WhatsAppClient
+from jarvis.integrations.messaging import WhatsAppClient
+from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -108,31 +109,41 @@ def create_app() -> FastAPI:
             replies.append({"from": msg.get("from"), "answer": answer})
         return {"ok": True, "processed": len(replies), "replies": replies}
 
-    @app.post("/webhooks/twilio", tags=["webhooks"])
-    async def twilio_inbound(request: Request) -> Response:
-        form = await request.form()
-        body = str(form.get("Body") or "")
-        sender = str(form.get("From") or "")
-        if not body:
-            return Response(content="<Response></Response>", media_type="application/xml")
-        result = run_jarvis(body, session_id=f"twilio:{sender or 'unknown'}")
-        answer = extract_answer(result)
-        if sender:
-            TwilioClient().send_sms(to=sender, body=answer)
-        xml = f"<Response><Message>{_xml_escape(answer)}</Message></Response>"
-        return Response(content=xml, media_type="application/xml")
+    @app.get("/webhooks/zadarma", tags=["webhooks"])
+    async def zadarma_verify(zd_echo: str | None = Query(default=None)) -> Response:
+        """Verificación de webhook PBX: Zadarma envía GET ?zd_echo=... y espera el eco."""
+        if zd_echo:
+            return PlainTextResponse(zd_echo)
+        return PlainTextResponse("ok")
+
+    @app.post("/webhooks/zadarma", tags=["webhooks"])
+    async def zadarma_inbound(request: Request) -> dict:
+        """Placeholder de centralita: registra NOTIFY_* para el Supervisor (llamadas del taller)."""
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "application/json" in content_type:
+            raw = await request.json()
+            payload = dict(raw) if isinstance(raw, dict) else {}
+        else:
+            form = await request.form()
+            payload = {str(k): str(v) for k, v in form.items()}
+
+        client = ZadarmaClient()
+        signature = (
+            request.headers.get("Signature")
+            or request.headers.get("signature")
+            or str(payload.get("signature") or "")
+        )
+        if not client.verify_webhook_signature(payload, signature or None):
+            raise HTTPException(status_code=403, detail="Firma Zadarma inválida")
+
+        event = client.extract_event(payload)
+        recorded = False
+        if event["event"] in INBOUND_EVENTS:
+            client.record_inbound(event)
+            recorded = True
+        return {"ok": True, "provider": "zadarma", "recorded": recorded, "event": event}
 
     return app
-
-
-def _xml_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
 
 
 app = create_app()

@@ -20,5 +20,6 @@ def test_offline_router_code_comms_shop_general():
     router = model.with_structured_output(RouteDecision)
     assert router.invoke("Refactoriza el script Python del sandbox").next_agent == "code_agent"
     assert router.invoke("Manda un WhatsApp de confirmación").next_agent == "comms_agent"
+    assert router.invoke("Envía un SMS por Zadarma").next_agent == "comms_agent"
     assert router.invoke("Lista el inventario de Shopify").next_agent == "shop_agent"
     assert router.invoke("¿Cuánto es 3+4?").next_agent == "general"

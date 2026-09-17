@@ -35,9 +35,9 @@ class Settings(BaseSettings):
     shopify_access_token: str | None = None
     shopify_api_version: str = "2024-10"
 
-    twilio_account_sid: str | None = None
-    twilio_auth_token: str | None = None
-    twilio_from_number: str | None = None
+    zadarma_key: str | None = None
+    zadarma_secret: str | None = None
+    zadarma_pbx_id: str | None = None
 
     whatsapp_verify_token: str | None = None
     whatsapp_access_token: str | None = None

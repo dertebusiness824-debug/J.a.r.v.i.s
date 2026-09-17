@@ -22,9 +22,11 @@ services:
         sync: false
       - key: SHOPIFY_ACCESS_TOKEN
         sync: false
-      - key: TWILIO_ACCOUNT_SID
+      - key: ZADARMA_KEY
         sync: false
-      - key: TWILIO_AUTH_TOKEN
+      - key: ZADARMA_SECRET
+        sync: false
+      - key: ZADARMA_PBX_ID
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false

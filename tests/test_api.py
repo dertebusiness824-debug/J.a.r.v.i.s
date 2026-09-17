@@ -75,10 +75,31 @@ def test_whatsapp_verify_and_inbound():
     assert "4" in body["replies"][0]["answer"]
 
 
-def test_twilio_inbound_xml():
+def test_twilio_webhook_removed():
     client = TestClient(create_app())
     res = client.post("/webhooks/twilio", data={"From": "+15550001111", "Body": "¿Cuánto es 3*3?"})
-    assert res.status_code == 200
-    assert "application/xml" in res.headers["content-type"]
-    assert "<Message>" in res.text
-    assert "9" in res.text
+    assert res.status_code == 404
+
+
+def test_zadarma_echo_and_inbound_call():
+    client = TestClient(create_app())
+    echo = client.get("/webhooks/zadarma", params={"zd_echo": "echo-42"})
+    assert echo.status_code == 200
+    assert echo.text == "echo-42"
+
+    inbound = client.post(
+        "/webhooks/zadarma",
+        data={
+            "event": "NOTIFY_START",
+            "caller_id": "+34911000000",
+            "called_did": "+34911999888",
+            "call_start": "2026-09-17 10:00:00",
+            "pbx_call_id": "in-1",
+        },
+    )
+    assert inbound.status_code == 200
+    body = inbound.json()
+    assert body["ok"] is True
+    assert body["recorded"] is True
+    assert body["event"]["event"] == "NOTIFY_START"
+    assert body["event"]["caller_id"] == "+34911000000"

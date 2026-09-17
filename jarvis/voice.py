@@ -75,7 +75,7 @@ def to_spoken(
         parts.append(shop)
     if "send_whatsapp_message" in names:
         parts.append("WhatsApp enviado.")
-    if "send_sms" in names:
+    if "send_zadarma_sms" in names:
         parts.append("SMS enviado.")
     if "calculate_expression" in names:
         value = None

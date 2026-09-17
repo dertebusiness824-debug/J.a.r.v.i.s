@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_FACTS = [
     "Jarvis v2.0 es un sistema multi-agente: Supervisor, Code Agent, Comms Agent y Shop Agent.",
     "El Code Agent opera solo dentro del sandbox configurado en WORKSPACE_ROOT.",
-    "El Comms Agent integra WhatsApp Cloud API y Twilio SMS mediante webhooks FastAPI.",
+    "El Comms Agent integra WhatsApp Cloud API y Zadarma PBX (SMS y webhooks de centralita).",
     "El Shop Agent consulta productos, inventario y pedidos de Shopify por GraphQL Admin API.",
     "El Planificador razona y descompone tareas; el Ejecutor usa GPT-4o con function calling.",
     "El usuario trabaja en español, prioriza productividad extrema y respuestas concisas.",

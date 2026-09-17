@@ -31,6 +31,16 @@ def test_supervisor_routes_whatsapp():
     assert "send_whatsapp_message" in tools_used
 
 
+def test_supervisor_routes_zadarma_sms():
+    state = run_jarvis("Envía un SMS de Zadarma al cliente del taller", session_id="t-sms")
+    assert state.get("active_agent") == "comms_agent"
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "send_zadarma_sms" in tools_used
+    assert "send_sms" not in tools_used
+    answer = extract_answer(state)
+    assert "zadarma" in answer.lower() or "demo" in answer.lower()
+
+
 def test_supervisor_routes_code_list_sandbox():
     state = run_jarvis("Lista los archivos del sandbox", session_id="t-code")
     assert state.get("active_agent") == "code_agent"

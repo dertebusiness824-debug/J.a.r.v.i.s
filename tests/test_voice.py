@@ -35,6 +35,11 @@ def test_spoken_calculator_and_shop():
     assert "*" not in shop
     file_out = to_spoken("Escrito 10 caracteres", tool_results=[{"tool": "write_file", "output": "ok", "ok": True}])
     assert file_out == "Archivo actualizado."
+    sms = to_spoken(
+        '{"mode":"demo"}',
+        tool_results=[{"tool": "send_zadarma_sms", "output": '{"status":"queued"}', "ok": True}],
+    )
+    assert sms == "SMS enviado."
 
 
 def test_extract_vapi_payload_shapes():

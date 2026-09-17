@@ -138,7 +138,18 @@ class OfflineChatModel(BaseChatModel):
             return RouteDecision(next_agent="code_agent", rationale="Tarea de código / filesystem.")
         if any(
             k in lowered
-            for k in ("whatsapp", "twilio", "sms", "mensaje", "webhook", "comunicación", "comunicacion")
+            for k in (
+                "whatsapp",
+                "zadarma",
+                "sms",
+                "mensaje",
+                "webhook",
+                "comunicación",
+                "comunicacion",
+                "centralita",
+                "pbx",
+                "llamada",
+            )
         ) and "comms_agent" not in visited:
             return RouteDecision(next_agent="comms_agent", rationale="Tarea de mensajería.")
         if any(
@@ -201,7 +212,10 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Consultar Shopify"],
                 is_complete=False,
             )
-        if any(k in lowered for k in ("whatsapp", "twilio", "sms", "mensaje")):
+        if any(
+            k in lowered
+            for k in ("whatsapp", "zadarma", "sms", "mensaje", "centralita", "pbx", "llamada")
+        ):
             return Plan(
                 reasoning="Consulta de mensajería: se usan las tools de Comms.",
                 tasks=["Enviar mensaje"],
@@ -349,12 +363,14 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
-        if "send_sms" in tool_names and "sms" in text.lower():
+        if "send_zadarma_sms" in tool_names and any(
+            k in text.lower() for k in ("sms", "zadarma", "centralita")
+        ):
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
-                        "name": "send_sms",
+                        "name": "send_zadarma_sms",
                         "args": {"to": "+10000000000", "body": text},
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",

@@ -1,4 +1,4 @@
-"""Wrappers de WhatsApp Cloud API y Twilio SMS + parsing de webhooks."""
+"""Wrappers de WhatsApp Cloud API + parsing de webhooks."""
 
 from __future__ import annotations
 
@@ -63,32 +63,3 @@ class WhatsAppClient:
                     if text:
                         messages.append({"from": msg.get("from", ""), "body": text, "id": msg.get("id", "")})
         return messages
-
-
-class TwilioClient:
-    """Twilio Programmable SMS. Sin credenciales opera en modo demo."""
-
-    def __init__(self) -> None:
-        self.settings = get_settings()
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.settings.twilio_account_sid and self.settings.twilio_auth_token)
-
-    def send_sms(self, to: str, body: str) -> str:
-        if not self.configured:
-            return json.dumps(
-                {"mode": "demo", "channel": "twilio_sms", "to": to, "body": body, "status": "queued"},
-                ensure_ascii=False,
-            )
-        sid = self.settings.twilio_account_sid
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        data = {"To": to, "From": self.settings.twilio_from_number or "", "Body": body}
-        with httpx.Client(timeout=20.0) as client:
-            response = client.post(
-                url,
-                data=data,
-                auth=(sid or "", self.settings.twilio_auth_token or ""),
-            )
-            response.raise_for_status()
-            return json.dumps(response.json(), ensure_ascii=False)

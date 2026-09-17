@@ -26,6 +26,7 @@ jarvis/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
     app.py
   integrations/
+    zadarma.py         # REST firmada (Key+Secret) + SMS PBX
     cartesia.py
 ```
 
@@ -41,7 +42,7 @@ cp .env.example .env   # añade OPENAI_API_KEY o ANTHROPIC_API_KEY
 uvicorn jarvis.api.main:app --reload --port 8000
 ```
 
-Sin claves API el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Twilio).
+Sin claves API el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma).
 
 ```bash
 python agent_core.py "¿Cuánto es 17 * 24?"
@@ -72,7 +73,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/twilio`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`.
+Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`.
 
 ## Producción (Railway / Render)
 

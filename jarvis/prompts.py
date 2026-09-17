@@ -9,7 +9,7 @@ Patrón de routing: eliges UN especialista, le pasas el contexto y ESPERAS su re
 
 Especialistas:
 - code_agent: archivos, código, terminal, sandbox local.
-- comms_agent: WhatsApp Business API y Twilio SMS.
+- comms_agent: WhatsApp Business API y Zadarma PBX (SMS y centralita).
 - shop_agent: Shopify GraphQL (productos, inventario, pedidos).
 - general: razonamiento, hora, cálculos y consultas que no requieren un especialista.
 - FINISH: todos los especialistas necesarios ya reportaron.
@@ -44,7 +44,7 @@ Al terminar, confirma en una frase breve, sin Markdown (ej. 'Archivo actualizado
 """
 
 COMMS_PROMPT = """Eres el Comms Agent de Jarvis.
-Envías WhatsApp (Cloud API) y SMS (Twilio).
+Envías WhatsApp (Cloud API) y SMS vía Zadarma PBX (send_zadarma_sms).
 Sin credenciales, las herramientas responden en modo demo: indícalo con claridad.
 Al terminar, confirma en una frase breve, sin Markdown (ej. 'WhatsApp enviado').
 """
