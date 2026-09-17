@@ -45,6 +45,16 @@ def test_health_and_docs():
     assert "flex-1" in hud.text
     assert "from-orange-500" in hud.text
     assert "animate-pulse" in hud.text
+    assert 'id="netLayer"' in hud.text
+    assert "absolute inset-0 -z-10" in hud.text
+    assert "object-cover" in hud.text
+    assert "opacity-10" in hud.text
+    assert "opacity-60" in hud.text
+    assert "transition-opacity duration-1000 ease-in-out" in hud.text
+    assert "animate-breath" in hud.text
+    assert "speech-start" in hud.text
+    assert 'id="netVeil"' in hud.text
+    assert "bg-black/40" in hud.text
 
 
 def test_directive_and_inbox_status():

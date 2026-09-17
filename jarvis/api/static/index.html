@@ -21,14 +21,41 @@
               sans: ["Inter", "Roboto", "ui-sans-serif", "system-ui", "sans-serif"],
               mono: ["Fira Code", "Courier New", "ui-monospace", "monospace"],
             },
+            keyframes: {
+              breath: {
+                "0%, 100%": { opacity: "0.45" },
+                "50%": { opacity: "1" },
+              },
+            },
+            animation: {
+              breath: "breath 2.4s ease-in-out infinite",
+            },
           },
         },
       };
     </script>
+    <style>
+      @keyframes breath {
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 1; }
+      }
+      .animate-breath { animation: breath 2.4s ease-in-out infinite; }
+    </style>
   </head>
-  <body class="min-h-dvh bg-black font-sans text-white antialiased overflow-x-hidden">
-    <canvas id="net" class="pointer-events-none fixed inset-0 z-0 opacity-25"></canvas>
-    <div class="pointer-events-none fixed inset-0 z-0 bg-black/70"></div>
+  <body class="relative min-h-dvh overflow-x-hidden bg-black font-sans text-white antialiased">
+    <div
+      id="netLayer"
+      data-call-status="idle"
+      data-call-state="idle"
+      class="pointer-events-none absolute inset-0 -z-10 object-cover opacity-10 transition-opacity duration-1000 ease-in-out"
+    >
+      <canvas id="net" class="h-full w-full object-cover"></canvas>
+    </div>
+    <div
+      id="netVeil"
+      class="pointer-events-none absolute inset-0 z-0 bg-black/40"
+      style="background: radial-gradient(ellipse at center, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.38) 55%, rgba(0,0,0,0.55) 100%);"
+    ></div>
 
     <div class="relative z-10 mx-auto flex min-h-dvh w-full max-w-3xl flex-col md:max-w-5xl">
       <header class="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
@@ -127,7 +154,27 @@
       let vapi = null;
       let voiceCfg = {};
       let inCall = false;
+      let isCallActive = false;
+      let callStatus = "idle";
       let talkMode = "browser";
+      const netLayer = document.getElementById("netLayer");
+      const NET_BASE =
+        "pointer-events-none absolute inset-0 -z-10 object-cover transition-opacity duration-1000 ease-in-out";
+
+      function setCallStatus(status) {
+        callStatus = status;
+        isCallActive = status !== "idle";
+        inCall = isCallActive;
+        const processing = status === "connecting" || status === "listening" || status === "speaking";
+        let vis = "opacity-10";
+        if (isCallActive) vis = "opacity-60";
+        if (status === "speaking") vis = "opacity-100";
+        const motion = processing ? "animate-breath" : "";
+        netLayer.className = [NET_BASE, vis, motion].filter(Boolean).join(" ");
+        netLayer.dataset.callStatus = status;
+        netLayer.dataset.callState = status;
+      }
+      window.setCallStatus = setCallStatus;
 
       function formatError(error) {
         if (error == null) return "error desconocido";
@@ -221,13 +268,14 @@
         rec.lang = "es-ES";
         rec.interimResults = false;
         rec.maxAlternatives = 1;
-        inCall = true;
+        setCallStatus("listening");
         setTalk("ESCUCHANDO", true);
         talkStatus.textContent = "Te escucho. Habla ahora.";
         rec.onresult = async (event) => {
           const spoken = event.results[0][0].transcript;
           log("> " + spoken);
           talkStatus.textContent = "Procesando…";
+          setCallStatus("speaking");
           try {
             await sendDirective(spoken, { speakAnswer: true });
           } catch (err) {
@@ -238,7 +286,7 @@
           talkStatus.textContent = "No pude oírte. Pulsa HABLAR e inténtalo de nuevo.";
         };
         rec.onend = () => {
-          inCall = false;
+          setCallStatus("idle");
           setTalk("HABLAR", false);
         };
         rec.start();
@@ -252,6 +300,7 @@
         }
         talkStatus.textContent = "Conectando con Jarvis…";
         setTalk("CONECTANDO", true);
+        setCallStatus("connecting");
         const llmUrl = voiceCfg.custom_llm_url;
         const overrides = {
           model: { provider: "custom-llm", url: llmUrl, model: "jarvis-supervisor" },
@@ -270,6 +319,7 @@
             });
           }
         } catch (err) {
+          setCallStatus("idle");
           setTalk("HABLAR", false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
           log("ERROR voz " + formatError(err));
@@ -290,16 +340,22 @@
             const Vapi = mod.default;
             vapi = new Vapi(voiceCfg.vapi_public_key);
             vapi.on("call-start", () => {
-              inCall = true;
+              setCallStatus("listening");
               setTalk("COLGAR", true);
               talkStatus.textContent = "En llamada. Habla con Jarvis.";
               log("Llamada de voz iniciada.");
             });
             vapi.on("call-end", () => {
-              inCall = false;
+              setCallStatus("idle");
               setTalk("HABLAR", false);
               talkStatus.textContent = "Llamada terminada. Pulsa HABLAR para continuar.";
               log("Llamada de voz finalizada.");
+            });
+            vapi.on("speech-start", () => {
+              if (isCallActive) setCallStatus("speaking");
+            });
+            vapi.on("speech-end", () => {
+              if (isCallActive) setCallStatus("listening");
             });
             vapi.on("error", (err) => {
               log("ERROR Vapi " + formatError(err));
