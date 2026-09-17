@@ -6,38 +6,57 @@ from jarvis.api.app import create_app
 from jarvis.db import guardar_mensaje, listar_no_leidos
 from jarvis.tools.email_reader import plataforma_desde_host, resumen_correo, revisar_correos_nuevos
 
+VAPI_LLM_URL = "https://j-a-r-v-i-s-yghr.onrender.com/webhooks/vapi-llm"
 
-def test_saludo_inicial_empty():
+
+def test_vapi_events_empty_inbox():
     client = TestClient(create_app())
-    res = client.get("/api/jarvis/saludo-inicial")
+    res = client.post(
+        "/api/jarvis/vapi-events",
+        json={"message": {"type": "assistant-request"}},
+    )
     assert res.status_code == 200
     body = res.json()
-    assert body["pending"] == 0
-    assert body["firstMessage"] == "Sistemas en línea. No hay mensajes pendientes, señor."
-    assert body["message"] == body["firstMessage"]
+    spoken = body["assistant"]["firstMessage"]
+    assert spoken == "Sistemas en línea. No hay mensajes pendientes, señor."
+    assert body["assistant"]["model"]["provider"] == "custom-llm"
+    assert body["assistant"]["model"]["url"] == VAPI_LLM_URL
 
 
-def test_whatsapp_saved_then_briefing_marks_read():
+def test_vapi_events_briefing_marks_read():
     client = TestClient(create_app())
     client.post("/webhooks/whatsapp-local", json={"from": "34911000000@c.us", "body": "Necesito cita"})
     client.post("/webhooks/whatsapp-local", json={"from": "34600000001@c.us", "body": "Presupuesto"})
     guardar_mensaje("gmail", "ana@example.com", "Asunto: factura")
 
-    first = client.get("/api/jarvis/saludo-inicial")
+    first = client.post(
+        "/api/jarvis/vapi-events",
+        json={"message": {"type": "assistant-request"}},
+    )
     assert first.status_code == 200
-    spoken = first.json()["firstMessage"]
+    spoken = first.json()["assistant"]["firstMessage"]
     assert "Sistemas en línea" in spoken
     assert "3 mensajes" in spoken
     assert "WhatsApp" in spoken
     assert "Gmail" in spoken
-    assert first.json()["pending"] == 3
-    assert first.json()["by_platform"]["whatsapp"] == 2
-    assert first.json()["by_platform"]["gmail"] == 1
+    assert first.json()["assistant"]["model"]["url"] == VAPI_LLM_URL
 
-    second = client.get("/api/jarvis/saludo-inicial")
-    assert second.json()["pending"] == 0
-    assert "No hay mensajes pendientes" in second.json()["firstMessage"]
+    second = client.post(
+        "/api/jarvis/vapi-events",
+        json={"message": {"type": "assistant-request"}},
+    )
+    assert "No hay mensajes pendientes" in second.json()["assistant"]["firstMessage"]
     assert listar_no_leidos() == []
+
+
+def test_vapi_events_other_types_empty_200():
+    client = TestClient(create_app())
+    res = client.post(
+        "/api/jarvis/vapi-events",
+        json={"message": {"type": "status-update", "status": "in-progress"}},
+    )
+    assert res.status_code == 200
+    assert res.content == b""
 
 
 def test_plataforma_imap_host():

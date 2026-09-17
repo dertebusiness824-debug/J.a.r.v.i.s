@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     jarvis_max_iterations: int = 8
     jarvis_recursion_limit: int = 25
     jarvis_db_path: str = "./data/jarvis.db"
+    jarvis_public_url: str = "https://j-a-r-v-i-s-yghr.onrender.com"
 
     email_host: str | None = None
     email_user: str | None = None

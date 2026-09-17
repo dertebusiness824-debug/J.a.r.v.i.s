@@ -168,7 +168,7 @@ def voice_config() -> dict[str, Any]:
     settings = get_settings()
     return {
         "custom_llm_path": "/webhooks/vapi-llm",
-        "greeting_path": "/api/jarvis/saludo-inicial",
+        "greeting_path": "/api/jarvis/vapi-events",
         "vapi_public_key_configured": bool(settings.vapi_public_key),
         "vapi_assistant_id": settings.vapi_assistant_id or "",
         "cartesia_configured": bool(settings.cartesia_api_key and settings.cartesia_voice_id),
@@ -195,7 +195,7 @@ def vapi_assistant_blueprint(request: Request) -> dict[str, Any]:
             "model": settings.cartesia_model,
         },
         "transcriber": {"provider": "deepgram", "language": "es"},
-        "firstMessageUrl": f"{base}/api/jarvis/saludo-inicial",
+        "serverUrl": f"{base}/api/jarvis/vapi-events",
         "firstMessage": "Sistemas en línea. No hay mensajes pendientes, señor.",
     }
 
