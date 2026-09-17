@@ -86,6 +86,11 @@ def test_health_and_docs():
     assert "if (!call" in hud.text
     assert "await vapi.stop()" in hud.text
     assert "lastVapiError" in hud.text
+    assert "getUserMedia" in hud.text
+    assert "INICIAR SISTEMA" in hud.text
+    assert "Requiere interacción manual para desbloquear canales de audio" in hud.text
+    assert "startVapiCall" in hud.text
+    assert "auto: true" in hud.text
 
 
 def test_directive_and_inbox_status():
