@@ -124,15 +124,31 @@ def _text_fragments(content: str) -> list[str]:
 
 
 async def _sse_openai_chunks(content: str, *, completion_id: str) -> AsyncIterator[str]:
-    """SSE idéntico al Custom LLM de OpenAI que consume Vapi."""
+    """SSE OpenAI: deltas + finish_reason stop + data: [DONE] (lo que Vapi consume)."""
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
+    first = True
     for fragment in _text_fragments(content):
+        delta: dict[str, Any] = {"content": fragment}
+        if first:
+            delta["role"] = "assistant"
+            first = False
         payload = {
             "id": cid,
             "object": "chat.completion.chunk",
-            "choices": [{"delta": {"content": fragment}}],
+            "created": created,
+            "model": "jarvis-supervisor",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
         }
         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    stop = {
+        "id": cid,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": "jarvis-supervisor",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+    }
+    yield f"data: {json.dumps(stop, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -203,8 +219,11 @@ async def vapi_custom_llm(request: Request):
 
 
 @router.post("/webhooks/vapi-llm/chat/completions", tags=["vapi"])
+@router.post("/webhooks/vapi-llm/v1/chat/completions", tags=["vapi"])
+@router.post("/v1/chat/completions", tags=["vapi"])
+@router.post("/chat/completions", tags=["vapi"])
 async def vapi_chat_completions(request: Request):
-    """Ruta OpenAI que Vapi llama: POST {custom-llm-url}/chat/completions (SSE)."""
+    """Rutas OpenAI que Vapi llama (base + /chat/completions o /v1/chat/completions)."""
     return await _vapi_llm_reply(request, force_stream=True)
 
 

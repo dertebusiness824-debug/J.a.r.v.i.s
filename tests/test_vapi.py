@@ -69,8 +69,24 @@ def test_vapi_chat_completions_sse_openai_path():
     assert "chat.completion.chunk" in body
     assert '"delta"' in body
     assert "408" in body
+    assert '"finish_reason": "stop"' in body or '"finish_reason":"stop"' in body
     assert "data: [DONE]" in body
     assert body.strip().endswith("data: [DONE]")
+
+
+def test_vapi_openai_path_aliases_stream():
+    client = TestClient(create_app())
+    payload = {"stream": True, "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]}
+    for path in (
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/webhooks/vapi-llm/v1/chat/completions",
+    ):
+        with client.stream("POST", path, json=payload) as res:
+            assert res.status_code == 200, path
+            body = "".join(res.iter_text())
+        assert "4" in body, path
+        assert "data: [DONE]" in body, path
 
 
 def test_vapi_stream_sse():
