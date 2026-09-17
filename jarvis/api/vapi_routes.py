@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from jarvis.config import get_settings
 from jarvis.api.vapi_events import custom_llm_model
 from jarvis.integrations.cartesia import CartesiaClient
-from jarvis.supervisor import run_jarvis
+from jarvis.supervisor import arun_jarvis
 from jarvis.voice import spoken_from_state
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,9 @@ router = APIRouter()
 # LangGraph trabaja, así Vapi no cierra la llamada con "Did Not Receive Response".
 KEEPALIVE = ": keep-alive\n\n"
 SLOW_REPLY = "Sigo procesando la petición, señor. Dame unos segundos y pregúntame de nuevo."
-ERROR_REPLY = "He encontrado un error de procesamiento."
+# Se dice en voz alta a propósito: si Vapi lo pronuncia, el endpoint sí respondió
+# y el fallo está dentro del Supervisor (traza completa en el log del servidor).
+ERROR_REPLY = "Error interno del sistema. Revisa la terminal del servidor, señor."
 
 
 class TtsRequest(BaseModel):
@@ -181,10 +183,10 @@ async def _sse_openai_chunks(
 
 
 async def _supervisor_spoken(user_text: str, session_id: str) -> str:
-    """Supervisor LangGraph (bloqueante) en un hilo, ya convertido a frase hablable."""
+    """Supervisor LangGraph fuera del event loop, ya convertido a frase hablable."""
     if not user_text:
         return "Sistema listo."
-    result = await asyncio.to_thread(run_jarvis, user_text, session_id=f"vapi:{session_id}")
+    result = await arun_jarvis(user_text, session_id=f"vapi:{session_id}")
     return spoken_from_state(result)
 
 
@@ -211,12 +213,33 @@ def _detach(task: "asyncio.Future[str]") -> None:
     task.add_done_callback(_drain)
 
 
+async def _spoken_within_budget(user_text: str, session_id: str) -> str:
+    """Camino JSON: misma frase hablable, con el mismo tope de tiempo que el SSE."""
+    timeout, _beat = _budget()
+    task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except asyncio.TimeoutError:
+        if task.done():
+            return task.result()
+        _detach(task)
+        logger.error(
+            "Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.",
+            timeout,
+        )
+        return SLOW_REPLY
+
+
 async def _sse_supervisor_reply(
     user_text: str,
     session_id: str,
     completion_id: str,
 ) -> AsyncIterator[str]:
-    """Primer chunk inmediato, heartbeat mientras piensa y texto con tope de tiempo."""
+    """Primer chunk inmediato, heartbeat mientras piensa y texto con tope de tiempo.
+
+    Cualquier fallo termina en voz: Vapi siempre recibe deltas + `finish_reason`
+    + `data: [DONE]`, nunca un stream cortado a medias.
+    """
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     yield _openai_chunk(
@@ -225,34 +248,38 @@ async def _sse_supervisor_reply(
         delta={"role": "assistant"},
         finish_reason=None,
     )
-    timeout, beat = _budget()
-    task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
-    deadline = time.monotonic() + timeout
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _detach(task)
-            logger.error("Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.", timeout)
-            spoken = SLOW_REPLY
-            break
-        try:
-            spoken = await asyncio.wait_for(asyncio.shield(task), timeout=min(beat, remaining))
-            break
-        except asyncio.TimeoutError:
-            if time.monotonic() < deadline:
-                yield KEEPALIVE
-        except Exception:
-            logger.exception("Error en Vapi Custom LLM")
-            spoken = ERROR_REPLY
-            break
+    spoken = ERROR_REPLY
+    try:
+        timeout, beat = _budget()
+        task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _detach(task)
+                logger.error(
+                    "Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.",
+                    timeout,
+                )
+                spoken = SLOW_REPLY
+                break
+            try:
+                spoken = await asyncio.wait_for(asyncio.shield(task), timeout=min(beat, remaining))
+                break
+            except asyncio.TimeoutError:
+                # `TimeoutError` también puede venir del propio Supervisor (HTTP de
+                # una herramienta): si la tarea ya acabó, el resultado manda.
+                if not task.done():
+                    yield KEEPALIVE
+                    continue
+                spoken = task.result()
+                break
+    except Exception:
+        logger.exception("Error en Vapi Custom LLM: respondo con voz para no dejar la llamada muda")
+        spoken = ERROR_REPLY
     async for chunk in _sse_openai_chunks(
         spoken, completion_id=cid, created=created, include_role=False
     ):
-        yield chunk
-
-
-async def _sse_chunks(content: str, *, completion_id: str) -> AsyncIterator[str]:
-    async for chunk in _sse_openai_chunks(content, completion_id=completion_id):
         yield chunk
 
 
@@ -292,14 +319,7 @@ async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
                 media_type="text/event-stream",
                 headers=_sse_headers(),
             )
-        timeout, _beat = _budget()
-        task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
-        try:
-            spoken = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-        except asyncio.TimeoutError:
-            _detach(task)
-            logger.error("Vapi: el Supervisor superó %.1f s; respondo para no colgar la llamada.", timeout)
-            spoken = SLOW_REPLY
+        spoken = await _spoken_within_budget(user_text, session_id)
         return openai_completion(spoken, completion_id=completion_id)
     except HTTPException:
         raise

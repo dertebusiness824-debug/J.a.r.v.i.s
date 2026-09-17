@@ -1,5 +1,8 @@
+import asyncio
+import time
+
 from jarvis.agent_core import extract_answer
-from jarvis.supervisor import compile_supervisor_graph, run_jarvis
+from jarvis.supervisor import arun_jarvis, compile_supervisor_graph, run_jarvis
 
 
 def test_supervisor_graph_compiles():
@@ -80,6 +83,44 @@ def test_supervisor_chains_code_then_comms():
     from jarvis.tools import read_file
 
     assert "listo" in read_file.invoke({"path": "aviso.txt"}).lower() or "aviso" in extract_answer(state).lower()
+
+
+def test_arun_jarvis_answers_like_run_jarvis():
+    state = asyncio.run(arun_jarvis("¿Cuánto es 17 * 24?", session_id="t-async"))
+    assert state.get("active_agent") == "general"
+    assert "408" in extract_answer(state)
+
+
+def test_arun_jarvis_keeps_the_event_loop_free(monkeypatch):
+    """Un nodo síncrono lento no puede parar el loop: el SSE de Vapi late en paralelo."""
+
+    class _SlowMemory:
+        def retrieve(self, _query: str) -> str:
+            time.sleep(0.3)
+            return ""
+
+        def remember(self, _text: str) -> None:
+            return None
+
+    monkeypatch.setattr("jarvis.supervisor.get_memory", lambda: _SlowMemory())
+
+    async def scenario() -> tuple[int, str]:
+        beats = 0
+
+        async def heartbeat() -> None:
+            nonlocal beats
+            while True:
+                await asyncio.sleep(0.02)
+                beats += 1
+
+        pulse = asyncio.create_task(heartbeat())
+        state = await arun_jarvis("¿Cuánto es 17 * 24?", session_id="t-async-loop")
+        pulse.cancel()
+        return beats, extract_answer(state)
+
+    beats, answer = asyncio.run(scenario())
+    assert "408" in answer
+    assert beats >= 3, "el loop siguió bloqueado mientras LangGraph trabajaba"
 
 
 def test_supervisor_routes_research_osint(monkeypatch):

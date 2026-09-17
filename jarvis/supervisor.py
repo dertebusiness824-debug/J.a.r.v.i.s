@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -151,9 +152,7 @@ def get_supervisor_graph():
     return _SUPERVISOR_GRAPH
 
 
-def run_jarvis(query: str, *, session_id: str = "cli") -> AgentState:
-    settings = get_settings()
-    graph = get_supervisor_graph()
+def _initial_state(query: str) -> AgentState:
     state: AgentState = {
         "messages": [HumanMessage(content=query)],
         "user_query": query,
@@ -172,16 +171,36 @@ def run_jarvis(query: str, *, session_id: str = "cli") -> AgentState:
         "delegation_log": [],
         "last_rationale": "",
     }
-    result = graph.invoke(
-        state,
-        {
-            "recursion_limit": settings.jarvis_recursion_limit,
-            "configurable": {"thread_id": session_id},
-        },
-    )
+    return state
+
+
+def _run_config(session_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    return {
+        "recursion_limit": settings.jarvis_recursion_limit,
+        "configurable": {"thread_id": session_id},
+    }
+
+
+def run_jarvis(query: str, *, session_id: str = "cli") -> AgentState:
+    result = get_supervisor_graph().invoke(_initial_state(query), _run_config(session_id))
     answer = extract_answer(result)
     if answer:
         get_memory().remember(f"Q: {query}\nA: {answer}")
+    return result
+
+
+async def arun_jarvis(query: str, *, session_id: str = "cli") -> AgentState:
+    """`run_jarvis` para llamadores async (SSE de Vapi) sin bloquear el event loop.
+
+    LangGraph despacha los nodos síncronos a un hilo durante `ainvoke`, así que el
+    turno completo (LLM + herramientas con `requests`) deja el loop libre para
+    seguir enviando heartbeats. La escritura en memoria también va a un hilo.
+    """
+    result = await get_supervisor_graph().ainvoke(_initial_state(query), _run_config(session_id))
+    answer = extract_answer(result)
+    if answer:
+        await asyncio.to_thread(get_memory().remember, f"Q: {query}\nA: {answer}")
     return result
 
 

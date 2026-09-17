@@ -5,13 +5,22 @@ import time
 from fastapi.testclient import TestClient
 
 from jarvis.api.app import create_app
-from jarvis.api.vapi_routes import SLOW_REPLY
+from jarvis.api.vapi_routes import ERROR_REPLY, SLOW_REPLY
 
 
 def _slow_supervisor(delay: float):
-    def _run(text, session_id=None):
-        time.sleep(delay)
+    """Supervisor lento: bloquea su hilo, como el LangGraph real (LLM + requests)."""
+
+    async def _run(text, session_id=None):
+        await asyncio.to_thread(time.sleep, delay)
         return {"final_answer": f"Listo tras {delay} segundos."}
+
+    return _run
+
+
+def _broken_supervisor(error: BaseException):
+    async def _run(text, session_id=None):
+        raise error
 
     return _run
 
@@ -118,7 +127,7 @@ def test_vapi_openai_path_aliases_stream():
 def test_vapi_sse_sends_keepalive_while_supervisor_thinks(monkeypatch):
     monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.05")
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
-    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(0.3))
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.3))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
@@ -140,7 +149,7 @@ def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
     """El stream cierra al vencer el presupuesto, no cuando el Supervisor acaba."""
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
     monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
-    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(4))
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(4))
     from jarvis.api.vapi_routes import _sse_supervisor_reply
     from jarvis.config import get_settings
 
@@ -167,7 +176,7 @@ def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
 
 def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
-    monkeypatch.setattr("jarvis.api.vapi_routes.run_jarvis", _slow_supervisor(3))
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(3))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
@@ -181,6 +190,59 @@ def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_vapi_sse_speaks_the_error_when_the_supervisor_explodes(monkeypatch):
+    """Un fallo interno se dice en voz alta: nunca un stream cortado sin [DONE]."""
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.arun_jarvis",
+        _broken_supervisor(RuntimeError("LangGraph roto")),
+    )
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={"stream": True, "messages": [{"role": "user", "content": "hola"}]},
+    ) as res:
+        assert res.status_code == 200
+        lines = [line for line in res.iter_lines() if line.strip()]
+    assert "".join(_sse_content(line) for line in lines) == ERROR_REPLY
+    assert '"finish_reason": "stop"' in " ".join(lines)
+    assert lines[-1] == "data: [DONE]"
+
+
+def test_vapi_sse_does_not_mistake_a_tool_timeout_for_slowness(monkeypatch):
+    """`TimeoutError` del Supervisor es un error, no el heartbeat venciendo."""
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.arun_jarvis",
+        _broken_supervisor(TimeoutError("una herramienta HTTP expiró")),
+    )
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={"stream": True, "messages": [{"role": "user", "content": "hola"}]},
+    ) as res:
+        assert res.status_code == 200
+        lines = [line for line in res.iter_lines() if line.strip()]
+    assert "".join(_sse_content(line) for line in lines) == ERROR_REPLY
+    assert lines[-1] == "data: [DONE]"
+    get_settings.cache_clear()
+
+
+def test_vapi_json_path_speaks_the_error(monkeypatch):
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.arun_jarvis",
+        _broken_supervisor(RuntimeError("LangGraph roto")),
+    )
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == ERROR_REPLY
+
+
 def test_vapi_sse_deltas_rebuild_the_sentence_verbatim():
     from jarvis.api.vapi_routes import _text_fragments
 
@@ -188,6 +250,14 @@ def test_vapi_sse_deltas_rebuild_the_sentence_verbatim():
     fragments = _text_fragments(text)
     assert len(fragments) > 1
     assert "".join(fragments) == text
+
+
+def test_vapi_reads_the_last_message_even_without_role():
+    """Payload OpenAI mínimo: `messages[-1].content` sin rol declarado."""
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={"messages": [{"content": "¿Cuánto es 2 + 2?"}]})
+    assert res.status_code == 200
+    assert "4" in res.json()["choices"][0]["message"]["content"]
 
 
 def test_vapi_chat_completions_get_probe():

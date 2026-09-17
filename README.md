@@ -103,6 +103,8 @@ Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/ja
 
 El Custom LLM de Vapi responde SSE al estilo OpenAI (`chat.completion.chunk` → `finish_reason: "stop"` → `data: [DONE]`). Mientras LangGraph piensa, el stream manda comentarios `: keep-alive` y, si el Supervisor pasa de `VAPI_RESPONSE_TIMEOUT_SECONDS` (30 s por defecto), contesta una frase de espera en vez de dejar la petición colgada: así Vapi nunca cierra con «Assistant Did Not Receive Response».
 
+El Supervisor se invoca con `arun_jarvis` (`graph.ainvoke`), nunca desde el event loop: LangGraph despacha los nodos síncronos a un hilo, así que los heartbeats siguen saliendo mientras el turno trabaja. Si algo falla dentro del grafo, el endpoint sigue devolviendo 200 con deltas válidos y Jarvis dice «Error interno del sistema» en voz alta (la traza completa queda en el log del servidor), en vez de cortar el stream y dejar la llamada muda.
+
 ## Producción (Railway / Render)
 
 ```bash
