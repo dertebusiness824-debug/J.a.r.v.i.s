@@ -29,6 +29,7 @@ class TaskOut(BaseModel):
 class InvokeResponse(BaseModel):
     answer: str
     agent: str
+    visited_agents: list[str] = Field(default_factory=list)
     plan: list[TaskOut] = Field(default_factory=list)
     tool_results: list[ToolResultOut] = Field(default_factory=list)
     retrieved_context: str = ""

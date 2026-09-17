@@ -106,9 +106,18 @@ class OfflineChatModel(BaseChatModel):
         return str(input)
 
     def _route(self, text: str) -> RouteDecision:
-        lowered = text.lower()
-        if any(k in lowered for k in ("finish", "tarea completada", "ya está resuelto")):
-            return RouteDecision(next_agent="FINISH", rationale="Tarea ya resuelta.")
+        query = text
+        visited: set[str] = set()
+        for line in text.splitlines():
+            lowered_line = line.lower().strip()
+            if lowered_line.startswith("consulta:"):
+                query = line.split(":", 1)[1].strip()
+            elif lowered_line.startswith("visitados:"):
+                raw = line.split(":", 1)[1].strip().lower()
+                if raw not in {"ninguno", "none", ""}:
+                    visited = {part.strip() for part in raw.split(",") if part.strip()}
+
+        lowered = query.lower()
         if any(
             k in lowered
             for k in (
@@ -125,12 +134,12 @@ class OfflineChatModel(BaseChatModel):
                 "write file",
                 "run_terminal",
             )
-        ):
+        ) and "code_agent" not in visited:
             return RouteDecision(next_agent="code_agent", rationale="Tarea de código / filesystem.")
         if any(
             k in lowered
             for k in ("whatsapp", "twilio", "sms", "mensaje", "webhook", "comunicación", "comunicacion")
-        ):
+        ) and "comms_agent" not in visited:
             return RouteDecision(next_agent="comms_agent", rationale="Tarea de mensajería.")
         if any(
             k in lowered
@@ -145,8 +154,10 @@ class OfflineChatModel(BaseChatModel):
                 "ecommerce",
                 "e-commerce",
             )
-        ):
+        ) and "shop_agent" not in visited:
             return RouteDecision(next_agent="shop_agent", rationale="Tarea de e-commerce.")
+        if visited:
+            return RouteDecision(next_agent="FINISH", rationale="Especialistas necesarios ya reportaron.")
         return RouteDecision(next_agent="general", rationale="Consulta general / herramientas core.")
 
     def _plan(self, text: str, raw: Any) -> Plan:
@@ -233,6 +244,7 @@ class OfflineChatModel(BaseChatModel):
             return AIMessage(content=str(tool_msgs[-1].content))
 
         text = last_user_text(messages)
+        lowered = text.lower()
         expr_match = _MATH_RE.search(text)
         if expr_match and "calculate_expression" in tool_names:
             expr = _normalize_math(expr_match.group("expr"))
@@ -247,7 +259,7 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
-        if any(k in text.lower() for k in ("hora", "fecha", "time")) and "get_current_time" in tool_names:
+        if any(k in lowered for k in ("hora", "fecha", "time")) and "get_current_time" in tool_names:
             return AIMessage(
                 content="",
                 tool_calls=[
@@ -259,8 +271,24 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
+        if "write_file" in tool_names and any(
+            k in lowered for k in ("crea", "escribe", "guardar", "write", "crear")
+        ):
+            match = re.search(r"([\w./-]+\.(?:py|txt|md|json|js|ts|csv))", text)
+            path = match.group(1) if match else "nota.txt"
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "write_file",
+                        "args": {"path": path, "content": text},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
         if "list_directory" in tool_names and any(
-            k in text.lower() for k in ("archivo", "sandbox", "directorio", "listar")
+            k in lowered for k in ("archivo", "sandbox", "directorio", "listar")
         ):
             return AIMessage(
                 content="",

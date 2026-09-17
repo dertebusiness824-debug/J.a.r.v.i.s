@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
         return InvokeResponse(
             answer=extract_answer(result),
             agent=str(result.get("active_agent") or result.get("next_agent") or "supervisor"),
+            visited_agents=list(result.get("visited_agents") or []),
             plan=[TaskOut(**t) for t in (result.get("plan") or [])],
             tool_results=[ToolResultOut(**r) for r in (result.get("tool_results") or [])],
             retrieved_context=result.get("retrieved_context") or "",

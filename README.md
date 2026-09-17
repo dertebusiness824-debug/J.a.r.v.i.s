@@ -14,16 +14,16 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 ## Estructura
 
 ```
-agent_core.py          # CLI del grafo Planificador → Ejecutor → Tools
-tools.py               # Re-export de herramientas Pydantic
 jarvis/
-  agent_core.py        # Nodos retrieve / planner / executor / tools
-  supervisor.py        # Patrón Supervisor + handoff Command
-  tools.py             # Core, code, comms, shop
-  memory.py            # Retriever Chroma / in-memory
-  api/                 # FastAPI + webhooks WhatsApp / Twilio
-  integrations/        # Shopify GraphQL, WhatsApp, Twilio
-tests/
+  supervisor.py        # Router: decide, pasa contexto, espera reporte
+  agents/
+    code_agent.py      # Filesystem + terminal (sandbox)
+    comms_agent.py     # WhatsApp Cloud API + Twilio
+    shop_agent.py      # Shopify GraphQL
+    general.py
+  agent_core.py        # Subgrafo Planificador → Ejecutor → Tools
+  api/                 # FastAPI + webhooks
+  integrations/        # Shopify / WhatsApp / Twilio
 ```
 
 ## Arranque
