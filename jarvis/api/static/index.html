@@ -66,8 +66,22 @@
           rgba(16, 185, 129, 0.06) 3px
         );
       }
+      /* Núcleo: verdes oscuros que se apagan hacia el borde, nunca un negro liso. */
       .reactor-core {
-        background: radial-gradient(circle at center, rgba(16, 185, 129, 0.35) 0%, rgba(0, 8, 5, 0.98) 68%);
+        background:
+          radial-gradient(circle at 50% 42%, rgba(52, 211, 153, 0.16) 0%, rgba(6, 78, 59, 0.44) 34%, rgba(2, 26, 18, 0.94) 70%, rgba(0, 8, 5, 0.98) 100%);
+      }
+      /* Barrido de radar: una cuña que gira por el aro exterior del núcleo. */
+      .radar-sweep {
+        background: conic-gradient(
+          from 0deg,
+          rgba(34, 197, 94, 0.3) 0deg,
+          rgba(34, 197, 94, 0.08) 34deg,
+          rgba(34, 197, 94, 0) 110deg,
+          rgba(34, 197, 94, 0) 360deg
+        );
+        -webkit-mask-image: radial-gradient(circle at center, transparent 52%, #000 56%);
+        mask-image: radial-gradient(circle at center, transparent 52%, #000 56%);
       }
     </style>
   </head>
@@ -122,17 +136,23 @@
           </h2>
           <p class="mb-3 text-xs text-gray-400">Mensajes pendientes, sin marcar como leídos.</p>
           <div class="grid grid-cols-3 gap-2 md:grid-cols-1 md:gap-3">
-            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
+            <div class="flex items-center justify-between gap-2 border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">WhatsApp</span>
-              <b id="countWa" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
+              <span class="rounded-sm border border-green-500/30 bg-green-900/20 px-2 py-0.5">
+                <b id="countWa" class="font-mono text-3xl font-black text-green-400 drop-shadow-[0_0_10px_rgba(34,197,94,0.85)]">0</b>
+              </span>
             </div>
-            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
+            <div class="flex items-center justify-between gap-2 border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">Correo</span>
-              <b id="countMail" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
+              <span class="rounded-sm border border-green-500/30 bg-green-900/20 px-2 py-0.5">
+                <b id="countMail" class="font-mono text-3xl font-black text-green-400 drop-shadow-[0_0_10px_rgba(34,197,94,0.85)]">0</b>
+              </span>
             </div>
-            <div class="flex items-baseline justify-between border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
+            <div class="flex items-center justify-between gap-2 border-t border-l border-emerald-500/30 bg-black/70 px-3 py-2">
               <span class="text-xs uppercase tracking-widest text-gray-400">Total</span>
-              <b id="countTotal" class="font-mono text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.85)]">0</b>
+              <span class="rounded-sm border border-green-500/30 bg-green-900/20 px-2 py-0.5">
+                <b id="countTotal" class="font-mono text-3xl font-black text-green-400 drop-shadow-[0_0_10px_rgba(34,197,94,0.85)]">0</b>
+              </span>
             </div>
           </div>
         </aside>
@@ -152,9 +172,20 @@
             <button
               type="button"
               id="talkBtn"
-              class="reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 font-hud font-black transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96 text-[11px] tracking-[0.4em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.3)] md:text-xs"
+              class="reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-500 transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96 shadow-[0_0_20px_rgba(16,185,129,0.3)]"
             >
-              J.A.R.V.I.S
+              <span class="radar-sweep pointer-events-none absolute inset-0 rounded-full animate-[spin_6s_linear_infinite]"></span>
+              <span class="pointer-events-none absolute inset-3 rounded-full border border-green-500/20 md:inset-5"></span>
+              <span
+                class="pointer-events-none absolute inset-8 rounded-full border border-dashed border-green-500/40 animate-[spin_10s_linear_infinite] md:inset-12"
+              ></span>
+              <span class="pointer-events-none absolute inset-14 rounded-full border border-green-500/20 md:inset-24"></span>
+              <span
+                id="coreLabel"
+                class="relative z-10 font-mono text-[11px] font-black tracking-[0.4em] text-green-400 drop-shadow-[0_0_14px_rgba(34,197,94,0.9)] md:text-xs"
+              >
+                J.A.R.V.I.S
+              </span>
             </button>
           </div>
           <p id="talkStatus" class="mt-4 max-w-xs text-center font-mono text-sm tracking-wide text-gray-400">
@@ -166,13 +197,24 @@
           id="terminalPanel"
           class="hud-panel flex min-h-0 flex-col border-t border-l border-emerald-500/30 bg-black/80 p-4 backdrop-blur-md"
         >
-          <h2 class="mb-2 font-hud text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400">
-            Terminal del Supervisor
-          </h2>
+          <div class="mb-2 flex items-baseline justify-between gap-2">
+            <h2 class="font-hud text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400">
+              Terminal del Supervisor
+            </h2>
+            <span class="font-mono text-[10px] tracking-widest text-emerald-500/70">tty/supervisor</span>
+          </div>
           <pre
             id="terminal"
             class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-emerald-100/90"
           >J.A.R.V.I.S. listo. Pulsa el núcleo o escribe una directiva.</pre>
+          <div class="mt-2 flex items-center gap-2 font-mono text-[12px] text-emerald-100/90">
+            <span class="text-green-500">supervisor@jarvis:~$</span>
+            <span
+              id="terminalCaret"
+              class="inline-block h-4 w-2 animate-pulse bg-green-500"
+              aria-hidden="true"
+            ></span>
+          </div>
         </section>
       </main>
 
@@ -210,17 +252,25 @@
       const terminalPanel = document.getElementById("terminalPanel");
       const researchOverlay = document.getElementById("researchOverlay");
 
+      const coreLabel = document.getElementById("coreLabel");
+
       const CORE_LABEL = "J.A.R.V.I.S";
       const UNLOCK_LABEL = "INICIAR SISTEMA";
       // Debe coincidir con la clase del botón en el HTML: reposo con brillo tenue.
       const CORE_BASE =
-        "reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 font-hud font-black transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96";
-      const TALK_IDLE =
-        `${CORE_BASE} text-[11px] tracking-[0.4em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.3)] md:text-xs`;
-      const TALK_LIVE =
-        `${CORE_BASE} animate-pulse text-[11px] tracking-[0.4em] text-white shadow-[0_0_50px_rgba(16,185,129,0.7)] md:text-xs`;
-      const TALK_UNLOCK =
-        `${CORE_BASE} animate-pulse text-[10px] tracking-[0.12em] text-emerald-100 shadow-[0_0_30px_rgba(16,185,129,0.45)]`;
+        "reactor-core relative z-10 flex h-72 w-72 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-500 transition-all duration-300 ease-out hover:scale-105 hover:shadow-[0_0_50px_rgba(16,185,129,0.7)] active:scale-95 md:h-96 md:w-96";
+      const TALK_IDLE = `${CORE_BASE} shadow-[0_0_20px_rgba(16,185,129,0.3)]`;
+      const TALK_LIVE = `${CORE_BASE} animate-pulse shadow-[0_0_50px_rgba(16,185,129,0.7)]`;
+      const TALK_UNLOCK = `${CORE_BASE} animate-pulse shadow-[0_0_30px_rgba(16,185,129,0.45)]`;
+      // El texto vive en su propio span: así los anillos del núcleo no se borran al
+      // cambiar de estado (antes se reescribía todo el interior del botón).
+      const LABEL_BASE = "relative z-10 font-mono font-black";
+      const LABEL_WIDE =
+        `${LABEL_BASE} text-[11px] tracking-[0.4em] text-green-400 drop-shadow-[0_0_14px_rgba(34,197,94,0.9)] md:text-xs`;
+      const LABEL_TIGHT =
+        `${LABEL_BASE} text-[10px] tracking-[0.12em] text-green-400 drop-shadow-[0_0_14px_rgba(34,197,94,0.9)]`;
+      const LABEL_LIVE =
+        `${LABEL_BASE} text-[11px] tracking-[0.4em] text-green-300 drop-shadow-[0_0_22px_rgba(34,197,94,1)] md:text-xs`;
 
       const RESEARCH_TOOLS = [
         "web_search",
@@ -321,9 +371,10 @@
 
       function setTalk(label, live) {
         const text = label || CORE_LABEL;
-        talkBtn.textContent = text;
-        if (text === UNLOCK_LABEL) talkBtn.className = TALK_UNLOCK;
-        else talkBtn.className = live ? TALK_LIVE : TALK_IDLE;
+        const unlock = text === UNLOCK_LABEL;
+        coreLabel.textContent = text;
+        coreLabel.className = unlock ? LABEL_TIGHT : live ? LABEL_LIVE : LABEL_WIDE;
+        talkBtn.className = unlock ? TALK_UNLOCK : live ? TALK_LIVE : TALK_IDLE;
       }
 
       function isResearchQuery(text) {
@@ -721,6 +772,9 @@
         tick();
       }
 
+      // El JS es la fuente de verdad del estado del núcleo: si el HTML se desalinea,
+      // este primer render lo corrige sin esperar a la primera llamada.
+      setTalk(CORE_LABEL, false);
       neural();
       refreshInbox();
       setInterval(refreshInbox, 1500);
