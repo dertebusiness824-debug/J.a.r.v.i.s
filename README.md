@@ -31,21 +31,6 @@ jarvis/
 
 En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm`, voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
 
-## Estructura
-
-```
-jarvis/
-  supervisor.py        # Router: decide, pasa contexto, espera reporte
-  agents/
-    code_agent.py      # Filesystem + terminal (sandbox)
-    comms_agent.py     # WhatsApp Cloud API + Twilio
-    shop_agent.py      # Shopify GraphQL
-    general.py
-  agent_core.py        # Subgrafo Planificador → Ejecutor → Tools
-  api/                 # FastAPI + webhooks
-  integrations/        # Shopify / WhatsApp / Twilio
-```
-
 ## Arranque
 
 ```bash
@@ -88,3 +73,14 @@ flowchart TD
 ```
 
 Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/twilio`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`.
+
+## Producción (Railway / Render)
+
+```bash
+# Procfile / Railway / Render
+uvicorn jarvis.api.main:app --host 0.0.0.0 --port $PORT
+# alternativa con Gunicorn
+gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT jarvis.api.main:app
+```
+
+Archivos de despliegue: `Dockerfile`, `.dockerignore`, `Procfile`, `railway.json`, `render.yaml`. Configura las claves de `.env.example` en el panel del proveedor (nunca en la imagen). Healthcheck: `GET /health`.

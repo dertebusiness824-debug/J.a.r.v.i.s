@@ -1,6 +1,7 @@
-"""Punto de entrada ASGI: `uvicorn jarvis.api.main:app --reload`.
+"""Punto de entrada ASGI: `uvicorn jarvis.api.main:app --host 0.0.0.0 --port $PORT`.
 
-El router de Vapi (`/webhooks/vapi-llm`) se registra en `create_app()`.
+CORS (allow_origins/methods/headers = *) se aplica en `create_app()` sobre esta instancia,
+para que Vapi y los webhooks de telefonía no encuentren bloqueos de origen.
 """
 
 from jarvis.api.app import app

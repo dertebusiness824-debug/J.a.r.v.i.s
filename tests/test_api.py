@@ -3,6 +3,23 @@ from fastapi.testclient import TestClient
 from jarvis.api.app import create_app
 
 
+def test_cors_allows_vapi_and_webhooks():
+    client = TestClient(create_app())
+    preflight = client.options(
+        "/webhooks/vapi-llm",
+        headers={
+            "Origin": "https://api.vapi.ai",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert preflight.headers.get("access-control-allow-origin") == "*"
+    assert "POST" in (preflight.headers.get("access-control-allow-methods") or "").upper()
+    health = client.get("/health", headers={"Origin": "https://dashboard.vapi.ai"})
+    assert health.status_code == 200
+    assert health.headers.get("access-control-allow-origin") == "*"
+
+
 def test_health_and_docs():
     client = TestClient(create_app())
     health = client.get("/health")
