@@ -37,6 +37,14 @@ def test_health_and_docs():
     assert 'id="talkBtn"' in hud.text
     assert "Delegación a Code, Comms, Shop o General" not in hud.text
     assert hud.headers.get("cache-control", "").startswith("no-store")
+    assert "cdn.tailwindcss.com" in hud.text
+    assert "backdrop-blur-md" in hud.text
+    assert "font-mono" in hud.text
+    assert "JSON.stringify(error, null, 2)" in hud.text
+    assert "max-h-[40vh]" in hud.text
+    assert "flex-1" in hud.text
+    assert "from-orange-500" in hud.text
+    assert "animate-pulse" in hud.text
 
 
 def test_directive_and_inbox_status():

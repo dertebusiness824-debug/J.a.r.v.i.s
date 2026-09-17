@@ -4,214 +4,111 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#070201" />
+    <meta name="theme-color" content="#050505" />
     <title>J.A.R.V.I.S. · Neural Core</title>
-    <style>
-      :root {
-        --bg: #070201;
-        --panel: rgba(28, 8, 4, 0.82);
-        --line: #5a1c0c;
-        --text: #ffd7c2;
-        --muted: #c07a5c;
-        --accent: #ff6a22;
-        --hot: #ff2d12;
-        --glow: 0 0 18px rgba(255, 80, 20, 0.45);
-      }
-      * { box-sizing: border-box; }
-      html, body { height: 100%; margin: 0; }
-      body {
-        font-family: "Share Tech Mono", "Consolas", ui-monospace, monospace;
-        color: var(--text);
-        background: radial-gradient(900px 500px at 70% 10%, #3a1208 0%, var(--bg) 55%);
-        overflow-x: hidden;
-      }
-      canvas#net {
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-      }
-      .hud {
-        position: relative;
-        z-index: 1;
-        display: grid;
-        grid-template-columns: 220px 1fr;
-        grid-template-rows: auto auto 1fr auto;
-        min-height: 100%;
-        gap: 12px;
-        padding: 16px;
-        padding-bottom: max(16px, env(safe-area-inset-bottom));
-      }
-      header {
-        grid-column: 1 / -1;
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 8px;
-        border-bottom: 1px solid var(--line);
-        padding-bottom: 8px;
-      }
-      header h1 {
-        margin: 0;
-        font-size: 16px;
-        letter-spacing: 0.24em;
-        color: var(--accent);
-        text-shadow: var(--glow);
-      }
-      header .status { color: var(--hot); font-size: 11px; }
-      aside, .core {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        box-shadow: var(--glow);
-        border-radius: 4px;
-        padding: 14px;
-      }
-      aside { grid-row: 2 / 4; }
-      aside h2, .core h2 {
-        margin: 0 0 12px;
-        font-size: 11px;
-        letter-spacing: 0.2em;
-        color: var(--muted);
-        text-transform: uppercase;
-      }
-      .counter {
-        display: flex;
-        justify-content: space-between;
-        padding: 10px 0;
-        border-bottom: 1px dashed #4a180c;
-        font-size: 14px;
-      }
-      .counter b { color: var(--hot); font-size: 20px; }
-      .talk-panel {
-        grid-column: 2;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        background: var(--panel);
-        border: 1px solid var(--line);
-        box-shadow: var(--glow);
-        border-radius: 4px;
-        padding: 16px;
-      }
-      #talkBtn {
-        width: 148px;
-        height: 148px;
-        border-radius: 50%;
-        border: 2px solid var(--accent);
-        background: radial-gradient(circle at 40% 30%, #ff8a3a, #c32210 68%);
-        color: #1a0602;
-        font: inherit;
-        font-weight: 800;
-        letter-spacing: 0.16em;
-        cursor: pointer;
-        box-shadow: 0 0 28px rgba(255, 80, 20, 0.55);
-      }
-      #talkBtn.live {
-        background: radial-gradient(circle at 40% 30%, #ff4d1a, #7a0b08 68%);
-        color: #ffd7c2;
-        animation: pulse 1.2s ease-in-out infinite;
-      }
-      #talkBtn:disabled { opacity: 0.55; cursor: wait; }
-      @keyframes pulse {
-        50% { transform: scale(1.04); box-shadow: 0 0 40px rgba(255, 45, 18, 0.8); }
-      }
-      #talkStatus {
-        margin: 0;
-        font-size: 12px;
-        color: var(--muted);
-        text-align: center;
-        min-height: 2.4em;
-      }
-      .core {
-        display: grid;
-        grid-template-rows: auto 1fr;
-        min-height: 180px;
-      }
-      #terminal {
-        margin: 0;
-        overflow: auto;
-        white-space: pre-wrap;
-        font-size: 13px;
-        line-height: 1.5;
-        color: #ffb089;
-        min-height: 0;
-      }
-      .command {
-        grid-column: 1 / -1;
-        display: flex;
-        gap: 8px;
-      }
-      #commandInput {
-        flex: 1;
-        background: #140704;
-        color: var(--text);
-        border: 1px solid var(--accent);
-        padding: 12px 14px;
-        font: inherit;
-        outline: none;
-      }
-      button.send {
-        background: linear-gradient(180deg, #ff7a2a, #c32210);
-        color: #1a0602;
-        border: 0;
-        font: inherit;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        padding: 0 18px;
-        cursor: pointer;
-      }
-      button.send:disabled { opacity: 0.5; cursor: wait; }
-      @media (max-width: 720px) {
-        .hud {
-          grid-template-columns: 1fr;
-          grid-template-rows: auto auto auto 1fr auto;
-        }
-        aside {
-          grid-row: auto;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px 16px;
-          align-items: center;
-        }
-        aside h2 { width: 100%; margin: 0; }
-        .counter {
-          flex: 1;
-          border: 0;
-          padding: 4px 0;
-          min-width: 90px;
-        }
-        .talk-panel { grid-column: 1; }
-        #talkBtn { width: 128px; height: 128px; }
-      }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "Roboto", "ui-sans-serif", "system-ui", "sans-serif"],
+              mono: ["Fira Code", "Courier New", "ui-monospace", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
   </head>
-  <body>
-    <canvas id="net"></canvas>
-    <div class="hud">
-      <header>
-        <h1>JARVIS NEURAL CORE</h1>
-        <span class="status" id="link">SISTEMAS EN LÍNEA</span>
+  <body class="min-h-dvh bg-black font-sans text-white antialiased overflow-x-hidden">
+    <canvas id="net" class="pointer-events-none fixed inset-0 z-0 opacity-25"></canvas>
+    <div class="pointer-events-none fixed inset-0 z-0 bg-black/70"></div>
+
+    <div class="relative z-10 mx-auto flex min-h-dvh w-full max-w-3xl flex-col md:max-w-5xl">
+      <header class="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
+        <div>
+          <h1 class="text-sm font-semibold tracking-[0.28em] text-orange-500 md:text-base">
+            JARVIS NEURAL CORE
+          </h1>
+          <p class="mt-1 text-xs text-gray-400">Supervisor multi-agente · voz y texto</p>
+        </div>
+        <span id="link" class="text-[10px] font-medium uppercase tracking-widest text-orange-400">
+          SISTEMAS EN LÍNEA
+        </span>
       </header>
-      <aside>
-        <h2>Bandeja de entrada</h2>
-        <div class="counter">WhatsApp <b id="countWa">0</b></div>
-        <div class="counter">Correo <b id="countMail">0</b></div>
-        <div class="counter">Total <b id="countTotal">0</b></div>
-      </aside>
-      <section class="talk-panel">
-        <button type="button" id="talkBtn">HABLAR</button>
-        <p id="talkStatus">Pulsa HABLAR para conversar con Jarvis.</p>
-      </section>
-      <section class="core">
-        <h2>Terminal del Supervisor</h2>
-        <pre id="terminal">J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.</pre>
-      </section>
-      <form class="command" id="directiveForm">
-        <input id="commandInput" autocomplete="off" placeholder="O escribe aquí: ¿Cuánto es 17 * 24?" />
-        <button class="send" type="submit" id="send">ENVIAR</button>
+
+      <main class="flex flex-1 flex-col gap-4 p-4 pb-2 md:grid md:grid-cols-[240px_1fr] md:grid-rows-[auto_1fr]">
+        <aside class="rounded-2xl border border-orange-500/20 bg-black/40 p-4 shadow-xl backdrop-blur-md md:row-span-2">
+          <h2 class="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Bandeja de entrada
+          </h2>
+          <p class="mb-3 text-xs text-gray-400">Mensajes pendientes, sin marcar como leídos.</p>
+          <div class="grid grid-cols-3 gap-2 md:grid-cols-1 md:gap-3">
+            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
+              <span class="text-xs text-gray-400">WhatsApp</span>
+              <b id="countWa" class="text-lg font-semibold text-white">0</b>
+            </div>
+            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
+              <span class="text-xs text-gray-400">Correo</span>
+              <b id="countMail" class="text-lg font-semibold text-white">0</b>
+            </div>
+            <div class="flex items-baseline justify-between rounded-xl border border-gray-700/50 bg-black/30 px-3 py-2">
+              <span class="text-xs text-gray-400">Total</span>
+              <b id="countTotal" class="text-lg font-semibold text-orange-500">0</b>
+            </div>
+          </div>
+        </aside>
+
+        <section class="flex flex-col items-center justify-center rounded-2xl border border-orange-500/20 bg-black/40 px-4 py-6 shadow-xl backdrop-blur-md">
+          <button
+            type="button"
+            id="talkBtn"
+            class="flex h-32 w-32 shrink-0 items-center justify-center rounded-full border border-orange-400/30 bg-gradient-to-br from-orange-500 to-red-600 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] transition active:scale-95 md:h-36 md:w-36"
+          >
+            HABLAR
+          </button>
+          <p id="talkStatus" class="mt-4 max-w-xs text-center text-sm text-gray-400">
+            Pulsa HABLAR para conversar con Jarvis.
+          </p>
+        </section>
+
+        <section class="flex min-h-0 flex-col rounded-2xl border border-orange-500/20 bg-black/40 p-4 shadow-xl backdrop-blur-md">
+          <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Terminal del Supervisor
+          </h2>
+          <pre
+            id="terminal"
+            class="h-64 max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-orange-100/90"
+          >J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.</pre>
+        </section>
+      </main>
+
+      <form
+        id="directiveForm"
+        class="flex w-full gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      >
+        <input
+          id="commandInput"
+          autocomplete="off"
+          placeholder="Escribe una directiva… ¿Cuánto es 17 * 24?"
+          class="min-w-0 flex-1 rounded-xl border border-orange-500/20 bg-black/40 px-4 py-2 text-sm text-white placeholder:text-gray-500 backdrop-blur-md outline-none focus:border-orange-500/60"
+        />
+        <button
+          class="shrink-0 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold tracking-wide text-black"
+          type="submit"
+          id="send"
+        >
+          ENVIAR
+        </button>
       </form>
     </div>
+
     <script>
       const terminal = document.getElementById("terminal");
       const input = document.getElementById("commandInput");
@@ -222,10 +119,37 @@
       const countMail = document.getElementById("countMail");
       const countTotal = document.getElementById("countTotal");
 
+      const TALK_IDLE =
+        "flex h-32 w-32 shrink-0 items-center justify-center rounded-full border border-orange-400/30 bg-gradient-to-br from-orange-500 to-red-600 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] transition active:scale-95 md:h-36 md:w-36";
+      const TALK_LIVE =
+        "flex h-32 w-32 shrink-0 animate-pulse items-center justify-center rounded-full border border-red-400/40 bg-gradient-to-br from-red-600 to-red-900 text-sm font-bold tracking-[0.2em] text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] shadow-red-600/60 transition active:scale-95 md:h-36 md:w-36";
+
       let vapi = null;
       let voiceCfg = {};
       let inCall = false;
       let talkMode = "browser";
+
+      function formatError(error) {
+        if (error == null) return "error desconocido";
+        if (typeof error === "string") return error;
+        if (error instanceof Error && error.message) return error.message;
+        if (typeof error === "object") {
+          if (typeof error.message === "string" && error.message) return error.message;
+          if (typeof error.error === "string" && error.error) return error.error;
+          if (error.error && typeof error.error === "object") {
+            if (error.error.message) return String(error.error.message);
+            try {
+              return JSON.stringify(error.error, null, 2);
+            } catch (_err) {}
+          }
+          try {
+            return JSON.stringify(error, null, 2);
+          } catch (_err) {
+            return String(error);
+          }
+        }
+        return String(error);
+      }
 
       function log(line) {
         terminal.textContent += "\n" + line;
@@ -234,7 +158,7 @@
 
       function setTalk(label, live) {
         talkBtn.textContent = label;
-        talkBtn.classList.toggle("live", !!live);
+        talkBtn.className = live ? TALK_LIVE : TALK_IDLE;
       }
 
       async function refreshInbox() {
@@ -307,7 +231,7 @@
           try {
             await sendDirective(spoken, { speakAnswer: true });
           } catch (err) {
-            log("ERROR " + err);
+            log("ERROR " + formatError(err));
           }
         };
         rec.onerror = () => {
@@ -348,7 +272,7 @@
         } catch (err) {
           setTalk("HABLAR", false);
           talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
-          log("ERROR voz " + (err && err.message ? err.message : err));
+          log("ERROR voz " + formatError(err));
           startBrowserVoice();
         }
       }
@@ -378,7 +302,7 @@
               log("Llamada de voz finalizada.");
             });
             vapi.on("error", (err) => {
-              log("ERROR Vapi " + (err && err.message ? err.message : err));
+              log("ERROR Vapi " + formatError(err));
             });
             vapi.on("message", (msg) => {
               if (!msg || msg.type !== "transcript" || !msg.transcript) return;
@@ -390,7 +314,7 @@
             talkStatus.textContent = "Pulsa HABLAR para una llamada de voz con Jarvis.";
             return;
           } catch (err) {
-            log("SDK de Vapi no cargó. Uso el micrófono del navegador.");
+            log("SDK de Vapi no cargó. " + formatError(err));
           }
         }
         talkMode = "browser";
@@ -416,7 +340,7 @@
         try {
           await sendDirective(command);
         } catch (err) {
-          log("ERROR " + err);
+          log("ERROR " + formatError(err));
         } finally {
           send.disabled = false;
           input.focus();
@@ -433,28 +357,29 @@
         }
         resize();
         addEventListener("resize", resize);
-        for (let i = 0; i < 58; i++) {
+        for (let i = 0; i < 42; i++) {
           nodes.push({
             x: Math.random() * innerWidth,
             y: Math.random() * innerHeight,
-            vx: (Math.random() - 0.5) * 0.45,
-            vy: (Math.random() - 0.5) * 0.45,
+            vx: (Math.random() - 0.5) * 0.28,
+            vy: (Math.random() - 0.5) * 0.28,
           });
         }
         function tick() {
-          ctx.fillStyle = "rgba(7, 2, 1, 0.28)";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
           for (const n of nodes) {
-            n.x += n.vx; n.y += n.vy;
+            n.x += n.vx;
+            n.y += n.vy;
             if (n.x < 0 || n.x > canvas.width) n.vx *= -1;
             if (n.y < 0 || n.y > canvas.height) n.vy *= -1;
           }
           for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
-              const a = nodes[i], b = nodes[j];
+              const a = nodes[i],
+                b = nodes[j];
               const d = Math.hypot(a.x - b.x, a.y - b.y);
-              if (d < 140) {
-                ctx.strokeStyle = `rgba(255, 70, 20, ${1 - d / 140})`;
+              if (d < 130) {
+                ctx.strokeStyle = `rgba(249, 115, 22, ${0.18 * (1 - d / 130)})`;
                 ctx.beginPath();
                 ctx.moveTo(a.x, a.y);
                 ctx.lineTo(b.x, b.y);
@@ -463,9 +388,9 @@
             }
           }
           for (const n of nodes) {
-            ctx.fillStyle = "#ff4d1a";
+            ctx.fillStyle = "rgba(249, 115, 22, 0.45)";
             ctx.beginPath();
-            ctx.arc(n.x, n.y, 2.2, 0, Math.PI * 2);
+            ctx.arc(n.x, n.y, 1.6, 0, Math.PI * 2);
             ctx.fill();
           }
           requestAnimationFrame(tick);
@@ -477,7 +402,6 @@
       refreshInbox();
       setInterval(refreshInbox, 4000);
       bootVoice();
-      input.focus();
     </script>
   </body>
 </html>
