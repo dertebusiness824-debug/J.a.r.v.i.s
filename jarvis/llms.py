@@ -575,11 +575,26 @@ class OfflineChatModel(BaseChatModel):
         return AIMessage(content="Sin herramientas aplicables. Tarea marcada para cierre.")
 
 
+def _groq_chat_model(model: str) -> BaseChatModel:
+    """Groq para voz: streaming activo, así Vapi recibe fragmentos sin esperar el final."""
+    from langchain_groq import ChatGroq
+
+    return ChatGroq(
+        model=model,
+        api_key=get_settings().groq_api_key,
+        temperature=0,
+        streaming=True,
+    )
+
+
 def get_planner_model() -> Any:
     settings = get_settings()
     if settings.offline:
         return OfflineChatModel(role="planner")
-    if settings.planner_provider == "anthropic" and settings.anthropic_api_key:
+    provider = settings.llm_provider
+    if provider == "groq":
+        return _groq_chat_model(settings.groq_planner_model)
+    if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
@@ -600,12 +615,15 @@ def get_executor_model() -> BaseChatModel:
     settings = get_settings()
     if settings.offline:
         return OfflineChatModel(role="executor")
+    if settings.llm_provider == "groq":
+        return _groq_chat_model(settings.groq_executor_model)
     from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(
         model=settings.executor_model,
         api_key=settings.openai_api_key,
         temperature=0,
+        streaming=True,
     )
 
 
