@@ -38,3 +38,7 @@ services:
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: HUNTERIO_API_KEY
+        sync: false
