@@ -1,6 +1,8 @@
-# Secrets
+# Secrets — never commit API keys (Zadarma, OpenAI, Vapi, etc.)
 .env
 .env.local
+.env.*
+!.env.example
 
 # Python
 .venv/
