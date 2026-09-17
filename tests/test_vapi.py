@@ -68,7 +68,11 @@ def test_voice_config_and_assistant_blueprint():
     client = TestClient(create_app())
     cfg = client.get("/voice/config")
     assert cfg.status_code == 200
-    assert cfg.json()["custom_llm_path"] == "/webhooks/vapi-llm"
+    body = cfg.json()
+    assert body["custom_llm_path"] == "/webhooks/vapi-llm"
+    assert body["custom_llm_url"].endswith("/webhooks/vapi-llm")
+    assert "vapi_public_key" in body
+    assert "talk_enabled" in body
     blueprint = client.get("/voice/vapi-assistant")
     assert blueprint.status_code == 200
     data = blueprint.json()
@@ -81,6 +85,20 @@ def test_voice_tts_without_cartesia():
     client = TestClient(create_app())
     res = client.post("/voice/tts", json={"text": "Hola"})
     assert res.status_code == 503
+
+
+def test_voice_config_exposes_public_key_for_hud(monkeypatch):
+    monkeypatch.setenv("VAPI_PUBLIC_KEY", "pk-hud-test")
+    monkeypatch.setenv("VAPI_ASSISTANT_ID", "asst-hud-test")
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+    body = client.get("/voice/config").json()
+    assert body["vapi_public_key"] == "pk-hud-test"
+    assert body["vapi_assistant_id"] == "asst-hud-test"
+    assert body["talk_enabled"] is True
+    get_settings.cache_clear()
 
 
 def test_vapi_rejects_bad_secret(monkeypatch):

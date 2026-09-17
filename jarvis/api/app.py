@@ -64,7 +64,13 @@ def create_app() -> FastAPI:
         page = STATIC_DIR / "index.html"
         if not page.exists():
             raise HTTPException(status_code=404, detail="UI no encontrada")
-        return FileResponse(page)
+        return FileResponse(
+            page,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
 
     @app.get("/health", response_model=HealthResponse, tags=["ops"])
     def health() -> HealthResponse:

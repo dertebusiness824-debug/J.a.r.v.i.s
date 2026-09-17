@@ -164,13 +164,19 @@ async def vapi_custom_llm(request: Request):
 
 
 @router.get("/voice/config", tags=["vapi"])
-def voice_config() -> dict[str, Any]:
+def voice_config(request: Request) -> dict[str, Any]:
+    """Claves públicas para el botón HABLAR del HUD (Vapi Web SDK)."""
     settings = get_settings()
+    base = (settings.jarvis_public_url or str(request.base_url).rstrip("/")).rstrip("/")
+    public_key = settings.vapi_public_key or ""
     return {
         "custom_llm_path": "/webhooks/vapi-llm",
+        "custom_llm_url": f"{base}/webhooks/vapi-llm",
         "greeting_path": "/api/jarvis/vapi-events",
-        "vapi_public_key_configured": bool(settings.vapi_public_key),
+        "vapi_public_key": public_key,
+        "vapi_public_key_configured": bool(public_key),
         "vapi_assistant_id": settings.vapi_assistant_id or "",
+        "talk_enabled": bool(public_key),
         "cartesia_configured": bool(settings.cartesia_api_key and settings.cartesia_voice_id),
         "cartesia_voice_id": settings.cartesia_voice_id or "",
         "cartesia_model": settings.cartesia_model,

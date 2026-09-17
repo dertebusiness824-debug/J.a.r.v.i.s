@@ -2,12 +2,14 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#070201" />
     <title>J.A.R.V.I.S. · Neural Core</title>
     <style>
       :root {
         --bg: #070201;
-        --panel: rgba(28, 8, 4, 0.78);
+        --panel: rgba(28, 8, 4, 0.82);
         --line: #5a1c0c;
         --text: #ffd7c2;
         --muted: #c07a5c;
@@ -18,10 +20,10 @@
       * { box-sizing: border-box; }
       html, body { height: 100%; margin: 0; }
       body {
-        font-family: "Share Tech Mono", "Consolas", monospace;
+        font-family: "Share Tech Mono", "Consolas", ui-monospace, monospace;
         color: var(--text);
         background: radial-gradient(900px 500px at 70% 10%, #3a1208 0%, var(--bg) 55%);
-        overflow: hidden;
+        overflow-x: hidden;
       }
       canvas#net {
         position: fixed;
@@ -32,28 +34,30 @@
         position: relative;
         z-index: 1;
         display: grid;
-        grid-template-columns: 260px 1fr;
-        grid-template-rows: auto 1fr auto;
-        height: 100%;
+        grid-template-columns: 220px 1fr;
+        grid-template-rows: auto auto 1fr auto;
+        min-height: 100%;
         gap: 12px;
         padding: 16px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
       }
       header {
         grid-column: 1 / -1;
         display: flex;
         justify-content: space-between;
         align-items: baseline;
+        gap: 8px;
         border-bottom: 1px solid var(--line);
         padding-bottom: 8px;
       }
       header h1 {
         margin: 0;
-        font-size: 18px;
-        letter-spacing: 0.28em;
+        font-size: 16px;
+        letter-spacing: 0.24em;
         color: var(--accent);
         text-shadow: var(--glow);
       }
-      header .status { color: var(--hot); font-size: 12px; }
+      header .status { color: var(--hot); font-size: 11px; }
       aside, .core {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -61,6 +65,7 @@
         border-radius: 4px;
         padding: 14px;
       }
+      aside { grid-row: 2 / 4; }
       aside h2, .core h2 {
         margin: 0 0 12px;
         font-size: 11px;
@@ -76,10 +81,52 @@
         font-size: 14px;
       }
       .counter b { color: var(--hot); font-size: 20px; }
+      .talk-panel {
+        grid-column: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--glow);
+        border-radius: 4px;
+        padding: 16px;
+      }
+      #talkBtn {
+        width: 148px;
+        height: 148px;
+        border-radius: 50%;
+        border: 2px solid var(--accent);
+        background: radial-gradient(circle at 40% 30%, #ff8a3a, #c32210 68%);
+        color: #1a0602;
+        font: inherit;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        cursor: pointer;
+        box-shadow: 0 0 28px rgba(255, 80, 20, 0.55);
+      }
+      #talkBtn.live {
+        background: radial-gradient(circle at 40% 30%, #ff4d1a, #7a0b08 68%);
+        color: #ffd7c2;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      #talkBtn:disabled { opacity: 0.55; cursor: wait; }
+      @keyframes pulse {
+        50% { transform: scale(1.04); box-shadow: 0 0 40px rgba(255, 45, 18, 0.8); }
+      }
+      #talkStatus {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+        min-height: 2.4em;
+      }
       .core {
         display: grid;
         grid-template-rows: auto 1fr;
-        min-height: 0;
+        min-height: 180px;
       }
       #terminal {
         margin: 0;
@@ -104,7 +151,7 @@
         font: inherit;
         outline: none;
       }
-      button {
+      button.send {
         background: linear-gradient(180deg, #ff7a2a, #c32210);
         color: #1a0602;
         border: 0;
@@ -114,7 +161,29 @@
         padding: 0 18px;
         cursor: pointer;
       }
-      button:disabled { opacity: 0.5; cursor: wait; }
+      button.send:disabled { opacity: 0.5; cursor: wait; }
+      @media (max-width: 720px) {
+        .hud {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto auto auto 1fr auto;
+        }
+        aside {
+          grid-row: auto;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px 16px;
+          align-items: center;
+        }
+        aside h2 { width: 100%; margin: 0; }
+        .counter {
+          flex: 1;
+          border: 0;
+          padding: 4px 0;
+          min-width: 90px;
+        }
+        .talk-panel { grid-column: 1; }
+        #talkBtn { width: 128px; height: 128px; }
+      }
     </style>
   </head>
   <body>
@@ -130,26 +199,42 @@
         <div class="counter">Correo <b id="countMail">0</b></div>
         <div class="counter">Total <b id="countTotal">0</b></div>
       </aside>
+      <section class="talk-panel">
+        <button type="button" id="talkBtn">HABLAR</button>
+        <p id="talkStatus">Pulsa HABLAR para conversar con Jarvis.</p>
+      </section>
       <section class="core">
         <h2>Terminal del Supervisor</h2>
-        <pre id="terminal">J.A.R.V.I.S. listo. Emita una directiva, maestro.</pre>
+        <pre id="terminal">J.A.R.V.I.S. listo. Pulsa HABLAR o escribe una directiva.</pre>
       </section>
       <form class="command" id="directiveForm">
-        <input id="commandInput" autocomplete="off" placeholder="Directiva para el Supervisor…" />
-        <button type="submit" id="send">ENVIAR</button>
+        <input id="commandInput" autocomplete="off" placeholder="O escribe aquí: ¿Cuánto es 17 * 24?" />
+        <button class="send" type="submit" id="send">ENVIAR</button>
       </form>
     </div>
     <script>
       const terminal = document.getElementById("terminal");
       const input = document.getElementById("commandInput");
       const send = document.getElementById("send");
+      const talkBtn = document.getElementById("talkBtn");
+      const talkStatus = document.getElementById("talkStatus");
       const countWa = document.getElementById("countWa");
       const countMail = document.getElementById("countMail");
       const countTotal = document.getElementById("countTotal");
 
+      let vapi = null;
+      let voiceCfg = {};
+      let inCall = false;
+      let talkMode = "browser";
+
       function log(line) {
         terminal.textContent += "\n" + line;
         terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      function setTalk(label, live) {
+        talkBtn.textContent = label;
+        talkBtn.classList.toggle("live", !!live);
       }
 
       async function refreshInbox() {
@@ -164,6 +249,163 @@
         }
       }
 
+      async function sendDirective(command, { speakAnswer } = {}) {
+        const res = await fetch("/api/jarvis/directive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command, session_id: "hud" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        const answer = data.answer || (data.lines || []).slice(1).join(" ");
+        (data.lines || [data.answer]).slice(1).forEach(log);
+        if (speakAnswer && answer) await speak(answer);
+        return answer;
+      }
+
+      async function speak(text) {
+        try {
+          const res = await fetch("/voice/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          if (res.ok) {
+            const audio = new Audio(URL.createObjectURL(await res.blob()));
+            await audio.play();
+            return;
+          }
+        } catch (_err) {}
+        if (!window.speechSynthesis) return;
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "es-ES";
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utter);
+      }
+
+      function browserSpeechSupported() {
+        return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+      }
+
+      function startBrowserVoice() {
+        const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Ctor) {
+          talkStatus.textContent = "Este navegador no da micrófono. Escribe abajo o configura Vapi en Render.";
+          return;
+        }
+        const rec = new Ctor();
+        rec.lang = "es-ES";
+        rec.interimResults = false;
+        rec.maxAlternatives = 1;
+        inCall = true;
+        setTalk("ESCUCHANDO", true);
+        talkStatus.textContent = "Te escucho. Habla ahora.";
+        rec.onresult = async (event) => {
+          const spoken = event.results[0][0].transcript;
+          log("> " + spoken);
+          talkStatus.textContent = "Procesando…";
+          try {
+            await sendDirective(spoken, { speakAnswer: true });
+          } catch (err) {
+            log("ERROR " + err);
+          }
+        };
+        rec.onerror = () => {
+          talkStatus.textContent = "No pude oírte. Pulsa HABLAR e inténtalo de nuevo.";
+        };
+        rec.onend = () => {
+          inCall = false;
+          setTalk("HABLAR", false);
+        };
+        rec.start();
+      }
+
+      async function toggleVapiCall() {
+        if (!vapi) return startBrowserVoice();
+        if (inCall) {
+          vapi.stop();
+          return;
+        }
+        talkStatus.textContent = "Conectando con Jarvis…";
+        setTalk("CONECTANDO", true);
+        const llmUrl = voiceCfg.custom_llm_url;
+        const overrides = {
+          model: { provider: "custom-llm", url: llmUrl, model: "jarvis-supervisor" },
+          transcriber: { provider: "deepgram", language: "es" },
+        };
+        try {
+          if (voiceCfg.vapi_assistant_id) {
+            await vapi.start(voiceCfg.vapi_assistant_id, overrides);
+          } else {
+            await vapi.start({
+              name: "J.A.R.V.I.S.",
+              firstMessage: "Sistemas en línea. Te escucho, señor.",
+              model: overrides.model,
+              transcriber: overrides.transcriber,
+              voice: { provider: "vapi", voiceId: "Elliot" },
+            });
+          }
+        } catch (err) {
+          setTalk("HABLAR", false);
+          talkStatus.textContent = "Vapi no arrancó. Pruebo el micrófono del navegador.";
+          log("ERROR voz " + (err && err.message ? err.message : err));
+          startBrowserVoice();
+        }
+      }
+
+      async function bootVoice() {
+        try {
+          const res = await fetch("/voice/config");
+          voiceCfg = await res.json();
+        } catch (_err) {
+          voiceCfg = {};
+        }
+        if (voiceCfg.vapi_public_key) {
+          try {
+            const mod = await import("https://esm.sh/@vapi-ai/web");
+            const Vapi = mod.default;
+            vapi = new Vapi(voiceCfg.vapi_public_key);
+            vapi.on("call-start", () => {
+              inCall = true;
+              setTalk("COLGAR", true);
+              talkStatus.textContent = "En llamada. Habla con Jarvis.";
+              log("Llamada de voz iniciada.");
+            });
+            vapi.on("call-end", () => {
+              inCall = false;
+              setTalk("HABLAR", false);
+              talkStatus.textContent = "Llamada terminada. Pulsa HABLAR para continuar.";
+              log("Llamada de voz finalizada.");
+            });
+            vapi.on("error", (err) => {
+              log("ERROR Vapi " + (err && err.message ? err.message : err));
+            });
+            vapi.on("message", (msg) => {
+              if (!msg || msg.type !== "transcript" || !msg.transcript) return;
+              if (msg.transcriptType && msg.transcriptType !== "final") return;
+              const who = msg.role === "assistant" ? "JARVIS" : "Tú";
+              log(who + ": " + msg.transcript);
+            });
+            talkMode = "vapi";
+            talkStatus.textContent = "Pulsa HABLAR para una llamada de voz con Jarvis.";
+            return;
+          } catch (err) {
+            log("SDK de Vapi no cargó. Uso el micrófono del navegador.");
+          }
+        }
+        talkMode = "browser";
+        if (browserSpeechSupported()) {
+          talkStatus.textContent = "Pulsa HABLAR (micrófono del navegador) o escribe abajo.";
+        } else {
+          talkStatus.textContent = "Este iPhone necesita VAPI_PUBLIC_KEY en Render para hablar. Mientras, escribe abajo.";
+        }
+      }
+
+      talkBtn.addEventListener("click", () => {
+        if (talkMode === "vapi") toggleVapiCall();
+        else startBrowserVoice();
+      });
+
       document.getElementById("directiveForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const command = input.value.trim();
@@ -172,14 +414,7 @@
         log("> " + command);
         input.value = "";
         try {
-          const res = await fetch("/api/jarvis/directive", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command, session_id: "hud" }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || res.statusText);
-          (data.lines || [data.answer]).slice(1).forEach(log);
+          await sendDirective(command);
         } catch (err) {
           log("ERROR " + err);
         } finally {
@@ -241,6 +476,7 @@
       neural();
       refreshInbox();
       setInterval(refreshInbox, 4000);
+      bootVoice();
       input.focus();
     </script>
   </body>

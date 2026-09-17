@@ -33,6 +33,10 @@ def test_health_and_docs():
     hud = client.get("/")
     assert "commandInput" in hud.text
     assert "NEURAL CORE" in hud.text
+    assert "HABLAR" in hud.text
+    assert 'id="talkBtn"' in hud.text
+    assert "Delegación a Code, Comms, Shop o General" not in hud.text
+    assert hud.headers.get("cache-control", "").startswith("no-store")
 
 
 def test_directive_and_inbox_status():
