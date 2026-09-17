@@ -9,6 +9,7 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 - **Ejecución / function calling:** GPT-4o
 - **Memoria:** ChromaDB local (fallback in-memory)
 - **API:** FastAPI asíncrono
+- **WhatsApp:** puente local `whatsapp-web.js` (QR con tu número personal)
 - **Voz:** Vapi (orquestación WebRTC + Custom LLM) y Cartesia Sonic (TTS de baja latencia)
 
 ## Estructura
@@ -28,21 +29,39 @@ jarvis/
   integrations/
     zadarma.py         # REST firmada (Key+Secret) + SMS PBX
     cartesia.py
+whatsapp-bridge/       # Node: whatsapp-web.js + Express :3000
+start_all.sh           # FastAPI :8000 + puente :3000
 ```
 
 En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm`, voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
 
 ## Arranque
 
+Hace falta **dos procesos**: FastAPI en `:8000` y el puente WhatsApp en `:3000`.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # añade OPENAI_API_KEY o ANTHROPIC_API_KEY
-uvicorn jarvis.api.main:app --reload --port 8000
+cd whatsapp-bridge && npm install && cd ..
+chmod +x start_all.sh
+./start_all.sh
 ```
 
-Sin claves API el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma).
+O en terminales separadas:
+
+```bash
+# Terminal 1 — Supervisor
+uvicorn jarvis.api.main:app --reload --port 8000
+
+# Terminal 2 — WhatsApp Web (primera vez: escanea el QR)
+cd whatsapp-bridge && npm start
+```
+
+`LocalAuth` guarda la sesión en `whatsapp-bridge/.wwebjs_auth/` (gitignored) para no volver a escanear el QR en cada reinicio.
+
+Sin claves LLM el sistema entra en **modo offline**: router heurístico + herramientas reales (calculadora, sandbox, wrappers demo de Shopify/WhatsApp/Zadarma). Si el puente Node no está levantado, `send_whatsapp_message` responde en modo demo.
 
 ```bash
 python agent_core.py "¿Cuánto es 17 * 24?"
@@ -73,7 +92,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`.
+Endpoints: `GET /health`, `POST /invoke`, `GET /graph`, `GET|POST /webhooks/whatsapp`, `POST /webhooks/whatsapp-local`, `GET|POST /webhooks/zadarma`, `POST /webhooks/vapi-llm`, `GET /voice/config`, `GET /voice/vapi-assistant`, `POST /voice/tts`. El puente Node expone `POST http://127.0.0.1:3000/send`.
 
 ## Producción (Railway / Render)
 

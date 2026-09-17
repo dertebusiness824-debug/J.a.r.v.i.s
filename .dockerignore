@@ -18,6 +18,10 @@ htmlcov
 data
 sandbox
 *.log
+whatsapp-bridge/node_modules
+whatsapp-bridge/.wwebjs_auth
+whatsapp-bridge/.wwebjs_cache
+node_modules
 .idea
 .vscode
 .DS_Store

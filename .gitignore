@@ -25,6 +25,12 @@ data/
 sandbox/
 *.log
 
+# WhatsApp Web bridge (sesión QR — no versionar)
+whatsapp-bridge/node_modules/
+whatsapp-bridge/.wwebjs_auth/
+whatsapp-bridge/.wwebjs_cache/
+node_modules/
+
 # IDE
 .idea/
 .vscode/

@@ -75,6 +75,20 @@ def test_whatsapp_verify_and_inbound():
     assert "4" in body["replies"][0]["answer"]
 
 
+def test_whatsapp_local_bridge_inbound():
+    client = TestClient(create_app())
+    res = client.post(
+        "/webhooks/whatsapp-local",
+        json={"from": "15551234567@c.us", "body": "¿Cuánto es 2 + 2?"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["processed"] == 1
+    assert body["channel"] == "whatsapp-web"
+    assert "4" in body["answer"]
+
+
 def test_twilio_webhook_removed():
     client = TestClient(create_app())
     res = client.post("/webhooks/twilio", data={"From": "+15550001111", "Body": "¿Cuánto es 3*3?"})

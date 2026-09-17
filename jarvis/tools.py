@@ -74,7 +74,9 @@ class RunTerminalInput(BaseModel):
 
 
 class SendWhatsAppInput(BaseModel):
-    to: str = Field(description="Número E.164 del destinatario, p.ej. +5215512345678.")
+    to: str = Field(
+        description="Destinatario: E.164 (+52155…) o JID de WhatsApp Web (52155…@c.us)."
+    )
     body: str = Field(description="Texto del mensaje de WhatsApp.")
 
 
@@ -226,7 +228,7 @@ def run_terminal(command: str) -> str:
 
 @tool("send_whatsapp_message", args_schema=SendWhatsAppInput)
 def send_whatsapp_message(to: str, body: str) -> str:
-    """Envía un mensaje de WhatsApp (Cloud API). En modo demo, simula el envío."""
+    """Envía WhatsApp vía el puente local whatsapp-web.js (POST http://127.0.0.1:3000/send)."""
     from jarvis.integrations.messaging import WhatsAppClient
 
     return WhatsAppClient().send_text(to=to, body=body)

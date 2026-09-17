@@ -1,4 +1,4 @@
-"""Agente de Comunicaciones: WhatsApp Cloud API + Zadarma PBX (SMS y centralita)."""
+"""Agente de Comunicaciones: WhatsApp Web (whatsapp-web.js) + Zadarma PBX."""
 
 from jarvis.agents.base import make_specialist_node
 from jarvis.prompts import COMMS_PROMPT

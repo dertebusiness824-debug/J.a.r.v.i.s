@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -108,6 +109,27 @@ def create_app() -> FastAPI:
                 WhatsAppClient().send_text(to=msg["from"], body=answer)
             replies.append({"from": msg.get("from"), "answer": answer})
         return {"ok": True, "processed": len(replies), "replies": replies}
+
+    @app.post("/webhooks/whatsapp-local", tags=["webhooks"])
+    async def whatsapp_local_inbound(request: Request) -> dict:
+        """Inbound del puente whatsapp-web.js: {from, body} → Supervisor LangGraph."""
+        payload = await request.json()
+        sender = str(payload.get("from") or "")
+        body = str(payload.get("body") or "")
+        if not body.strip():
+            return {"ok": True, "processed": 0, "channel": "whatsapp-web", "replies": []}
+        result = await asyncio.to_thread(run_jarvis, body, session_id=f"wa:{sender or 'unknown'}")
+        answer = extract_answer(result)
+        if sender:
+            await asyncio.to_thread(WhatsAppClient().send_text, sender, answer)
+        return {
+            "ok": True,
+            "processed": 1,
+            "channel": "whatsapp-web",
+            "from": sender,
+            "answer": answer,
+            "replies": [{"from": sender, "answer": answer}],
+        }
 
     @app.get("/webhooks/zadarma", tags=["webhooks"])
     async def zadarma_verify(zd_echo: str | None = Query(default=None)) -> Response:

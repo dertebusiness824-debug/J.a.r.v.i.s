@@ -1,4 +1,4 @@
-"""Integraciones externas (Shopify, WhatsApp, Zadarma, Cartesia)."""
+"""Integraciones externas (Shopify, WhatsApp Web, Zadarma, Cartesia)."""
 
 from jarvis.integrations.cartesia import CartesiaClient
 from jarvis.integrations.messaging import WhatsAppClient
