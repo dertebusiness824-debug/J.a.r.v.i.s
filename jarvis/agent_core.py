@@ -16,9 +16,21 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from jarvis.config import get_settings
-from jarvis.llms import Plan, get_executor_model, get_planner_model, last_user_text
+from jarvis.llms import (
+    Plan,
+    StructuredOutputError,
+    get_executor_model,
+    get_planner_model,
+    invoke_structured,
+    last_user_text,
+)
 from jarvis.memory import get_memory
-from jarvis.prompts import EXECUTOR_PROMPT, JARVIS_PERSONA, PLANNER_PROMPT
+from jarvis.prompts import (
+    EXECUTOR_PROMPT,
+    JARVIS_PERSONA,
+    NEURAL_ERROR_REPLY,
+    PLANNER_PROMPT,
+)
 from jarvis.state import AgentState, TaskItem, ToolResult
 from jarvis.tools import CORE_TOOLS, tools_by_agent
 
@@ -35,15 +47,37 @@ def loop_budget() -> int:
     return max(1, min(settings.jarvis_max_iterations, settings.jarvis_recursion_limit // 3))
 
 
-def _loop_answer(state: AgentState) -> str:
-    """Lo mejor que hay en el estado cuando el ciclo se corta: borrador o última tool."""
+def _executor_draft(state: AgentState) -> str | None:
+    """Último texto que el ejecutor redactó para el usuario, si lo hay."""
     for msg in reversed(state.get("messages") or []):
         if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
             return str(msg.content)
+    return None
+
+
+def _loop_answer(state: AgentState) -> str:
+    """Lo mejor que hay en el estado cuando el ciclo se corta: borrador o última tool."""
+    draft = _executor_draft(state)
+    if draft:
+        return draft
     results = state.get("tool_results") or []
     if results:
         return str(results[-1].get("output") or "")
     return "No pude cerrar la tarea dentro del límite de iteraciones."
+
+
+def _rescue_plan(state: AgentState) -> Plan:
+    """Plan de cierre cuando el planificador no devolvió uno válido.
+
+    Solo se rescata el borrador del ejecutor, que ya es prosa hablable; la salida
+    cruda de una herramienta (JSON de búsqueda) no se pone en boca de Jarvis.
+    """
+    return Plan(
+        reasoning="El planificador no devolvió un plan válido; se cierra el turno.",
+        tasks=[],
+        is_complete=True,
+        final_answer=_executor_draft(state) or NEURAL_ERROR_REPLY,
+    )
 
 
 def retrieve_node(state: AgentState) -> dict[str, Any]:
@@ -83,8 +117,18 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     if state.get("error"):
         retries += 1
 
-    planner = get_planner_model().with_structured_output(Plan)
-    plan: Plan = planner.invoke(_planner_messages(state))
+    planner_failure: str | None = None
+    try:
+        plan = invoke_structured(get_planner_model(), Plan, _planner_messages(state))
+    except StructuredOutputError as exc:
+        # Sin plan no hay siguiente paso, pero sí hay turno: se cierra hablando en
+        # vez de dejar que la excepción tumbe el grafo y con él el stream de voz.
+        planner_failure = str(exc)
+        logger.exception(
+            "🧩 [PLANNER] %s: el plan estructurado no llegó; cierro el turno con lo que hay",
+            state.get("active_agent") or "general",
+        )
+        plan = _rescue_plan(state)
 
     tasks: list[TaskItem] = [
         {
@@ -118,6 +162,8 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     }
     if complete:
         updates["error"] = None if plan.is_complete else state.get("error")
+        if planner_failure:
+            updates["error"] = planner_failure
         updates["messages"] = [AIMessage(content=answer or plan.reasoning)]
         if not tasks and state.get("plan"):
             updates["plan"] = [{**item, "status": "done"} for item in state["plan"]]

@@ -712,3 +712,31 @@ def test_vapi_rejects_bad_secret(monkeypatch):
     )
     assert ok.status_code == 200
     get_settings.cache_clear()
+
+
+def test_vapi_sse_speaks_the_neural_error_when_a_specialist_crashes(monkeypatch):
+    """Con el grafo real: el especialista revienta y Vapi oye la frase amable, con [DONE]."""
+    from jarvis.prompts import NEURAL_ERROR_REPLY
+
+    class _Exploding:
+        def invoke(self, _payload, _config=None):
+            raise RuntimeError("parseo roto dentro del research_agent")
+
+    monkeypatch.setattr("jarvis.agents.base.core_subgraph", lambda: _Exploding())
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={
+            "stream": True,
+            "call": {"id": "voice-crash"},
+            "messages": [{"role": "user", "content": "Investiga a Ada Lovelace y recopila información pública"}],
+        },
+    ) as res:
+        assert res.status_code == 200
+        lines = [line for line in res.iter_lines() if line.strip()]
+    spoken = "".join(_sse_content(line) for line in lines)
+    assert spoken.endswith(NEURAL_ERROR_REPLY)
+    assert ERROR_REPLY not in spoken, "el fallo se absorbe en el grafo, no en el endpoint"
+    assert '"finish_reason": "stop"' in " ".join(lines)
+    assert lines[-1] == "data: [DONE]"

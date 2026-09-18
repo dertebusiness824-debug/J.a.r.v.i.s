@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
@@ -14,10 +15,19 @@ from langgraph.types import Command
 from jarvis.agent_core import extract_answer
 from jarvis.agents import SPECIALIST_NODES
 from jarvis.config import get_settings
-from jarvis.llms import RouteDecision, get_supervisor_model, last_user_text
+from jarvis.llms import (
+    RouteDecision,
+    StructuredOutputError,
+    get_supervisor_model,
+    heuristic_route,
+    invoke_structured,
+    last_user_text,
+)
 from jarvis.memory import get_memory
 from jarvis.prompts import JARVIS_PERSONA, SUPERVISOR_PROMPT
 from jarvis.state import AgentState, SpecialistName
+
+logger = logging.getLogger(__name__)
 
 SpecialistTarget = Literal[
     "code_agent",
@@ -68,14 +78,22 @@ def routing_card(state: AgentState) -> str:
 
 
 def _route_with_llm(state: AgentState) -> RouteDecision:
-    model = get_supervisor_model().with_structured_output(RouteDecision)
-    return model.invoke(
-        [
-            SystemMessage(content=JARVIS_PERSONA),
-            SystemMessage(content=SUPERVISOR_PROMPT),
-            HumanMessage(content=routing_card(state)),
-        ]
-    )
+    card = routing_card(state)
+    try:
+        return invoke_structured(
+            get_supervisor_model(),
+            RouteDecision,
+            [
+                SystemMessage(content=JARVIS_PERSONA),
+                SystemMessage(content=SUPERVISOR_PROMPT),
+                HumanMessage(content=card),
+            ],
+        )
+    except StructuredOutputError:
+        # La ficha de enrutado lleva la consulta y los visitados: con eso la ruta
+        # por palabras clave decide igual (y sabe cerrar), así que el turno sigue.
+        logger.exception("🧭 [SUPERVISOR] el enrutado estructurado falló; uso la ruta heurística")
+        return heuristic_route(card)
 
 
 def supervisor_node(state: AgentState) -> Command[SpecialistTarget]:
