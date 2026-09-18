@@ -8,6 +8,7 @@ El `Command(goto="supervisor")` de `make_specialist_node` cierra la arista de vu
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
@@ -22,6 +23,8 @@ from jarvis.config import get_settings
 from jarvis.hud_live import mark_researching
 from jarvis.prompts import RESEARCH_PROMPT
 
+logger = logging.getLogger(__name__)
+
 NAME = "research_agent"
 PROMPT = RESEARCH_PROMPT
 USER_AGENT = "JarvisOSINT/2.0 (public-source research)"
@@ -34,17 +37,37 @@ USERNAME_TARGETS = (
     ("instagram", "https://instagram.com/{username}"),
     ("medium", "https://medium.com/@{username}"),
 )
+# La API rechaza consultas largas: está pensada para queries, no para prompts.
+TAVILY_QUERY_LIMIT = 400
+TAVILY_TOPICS = ("general", "news", "finance")
+TAVILY_TIME_RANGES = ("day", "week", "month", "year")
 
 
 class WebSearchInput(BaseModel):
     query: str = Field(description="Consulta de búsqueda web (persona, empresa o tema).")
+    topic: str | None = Field(
+        default=None,
+        description="general (por defecto), news para actualidad o finance para mercados.",
+    )
+    time_range: str | None = Field(
+        default=None,
+        description="Limita la antigüedad de los resultados: day, week, month o year.",
+    )
 
 
 class AdvancedDorkSearchInput(BaseModel):
     query: str = Field(description="Consulta libre. Puede incluir operadores (intext:, intitle:, OR).")
     site: str | None = Field(
         default=None,
-        description="Si se indica (ej. linkedin.com/in o twitter.com), se antepone site:{sitio}.",
+        description="Si se indica (ej. linkedin.com/in o twitter.com), restringe la búsqueda a ese dominio.",
+    )
+    topic: str | None = Field(
+        default=None,
+        description="general (por defecto), news para actualidad o finance para mercados.",
+    )
+    time_range: str | None = Field(
+        default=None,
+        description="Limita la antigüedad de los resultados: day, week, month o year.",
     )
 
 
@@ -91,65 +114,98 @@ def _hunter_api_key() -> str | None:
     return None
 
 
-def _compose_dork(query: str, site: str | None = None) -> str:
-    cleaned = " ".join((query or "").split())
-    if not site:
-        return cleaned
-    host = str(site).strip()
+def _clean_site(site: str | None) -> str:
+    """`site:linkedin.com/in`, `https://x.com/` y `x.com` acaban todos en `x.com`."""
+    host = str(site or "").strip()
     if host.lower().startswith("site:"):
         host = host[5:].strip()
-    host = host.lstrip("/").rstrip("/")
+    if "//" in host:
+        host = host.split("//", 1)[1]
+    return host.strip("/")
+
+
+def _compose_dork(query: str, site: str | None = None) -> str:
+    cleaned = " ".join((query or "").split())
+    host = _clean_site(site)
     if not host:
         return cleaned
     return f"site:{host} {cleaned}".strip()
 
 
-def _tavily_search(query: str) -> list[dict[str, Any]] | None:
+def _tavily_api_key() -> str | None:
     settings = get_settings()
-    if not settings.tavily_api_key:
-        return None
-    try:
-        from langchain_community.tools.tavily_search import TavilySearchResults
-    except ImportError:
-        return None
-    os.environ.setdefault("TAVILY_API_KEY", settings.tavily_api_key)
-    try:
-        search = TavilySearchResults(max_results=8)
-        raw = search.invoke({"query": query})
-    except Exception:
-        try:
-            search = TavilySearchResults(max_results=8)
-            raw = search.invoke(query)
-        except Exception:
-            return None
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except json.JSONDecodeError:
-            return [{"title": query, "snippet": raw, "url": None}]
-    if isinstance(raw, list):
-        results: list[dict[str, Any]] = []
-        for item in raw:
-            if isinstance(item, dict):
-                results.append(
-                    {
-                        "title": item.get("title") or query,
-                        "snippet": item.get("content") or item.get("snippet") or "",
-                        "url": item.get("url"),
-                    }
-                )
-            else:
-                results.append({"title": query, "snippet": str(item), "url": None})
-        return results
-    if isinstance(raw, dict):
-        return [
-            {
-                "title": raw.get("title") or query,
-                "snippet": raw.get("content") or raw.get("snippet") or json.dumps(raw),
-                "url": raw.get("url"),
-            }
-        ]
+    for candidate in (settings.tavily_api_key, os.getenv("TAVILY_API_KEY")):
+        key = (candidate or "").strip()
+        if key:
+            return key
     return None
+
+
+def _tavily_search(
+    query: str,
+    *,
+    site: str | None = None,
+    topic: str | None = None,
+    time_range: str | None = None,
+    max_results: int = 8,
+) -> list[dict[str, Any]] | None:
+    """Busca con el SDK oficial de Tavily. `None` si no hay clave o si la API falla.
+
+    Devolver `None` deja que `_public_search` caiga al proveedor de reserva, pero el
+    motivo se registra: una clave caducada tiene que verse en los logs, no disfrazarse
+    de "sin resultados".
+    """
+    key = _tavily_api_key()
+    if not key:
+        return None
+    try:
+        from tavily import TavilyClient
+    except ImportError:
+        logger.warning("🔎 [TAVILY] falta el paquete tavily-python; uso el proveedor de reserva")
+        return None
+
+    params: dict[str, Any] = {
+        "query": " ".join((query or "").split())[:TAVILY_QUERY_LIMIT],
+        "max_results": max_results,
+        # OSINT es búsqueda de precisión: `advanced` devuelve fragmentos reordenados
+        # por relevancia en vez de un resumen genérico de la página.
+        "search_depth": "advanced",
+    }
+    host = _clean_site(site)
+    if host:
+        # Tavily no interpreta el operador `site:` dentro del texto de la consulta;
+        # el filtro de dominio de verdad es este.
+        params["include_domains"] = [host]
+    if topic in TAVILY_TOPICS:
+        params["topic"] = topic
+    if time_range in TAVILY_TIME_RANGES:
+        params["time_range"] = time_range
+
+    try:
+        raw = TavilyClient(api_key=key).search(**params)
+    except Exception as exc:
+        logger.warning("🔎 [TAVILY] búsqueda fallida (%s); uso el proveedor de reserva", exc)
+        return None
+
+    items = raw.get("results") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        logger.warning("🔎 [TAVILY] respuesta sin resultados utilizables; uso el proveedor de reserva")
+        return None
+
+    results: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        result: dict[str, Any] = {
+            "title": item.get("title") or query,
+            "snippet": item.get("content") or "",
+            "url": item.get("url"),
+        }
+        # La puntuación de relevancia ayuda al Ejecutor a decidir a qué fuente creer.
+        if item.get("score") is not None:
+            result["score"] = item["score"]
+        results.append(result)
+    return results or None
 
 
 def _duckduckgo_search(query: str) -> list[dict[str, Any]]:
@@ -196,23 +252,32 @@ def _duckduckgo_search(query: str) -> list[dict[str, Any]]:
     return results[:8]
 
 
-def _public_search(query: str) -> dict[str, Any]:
-    """Tavily o DuckDuckGo; nunca lanza: un bloqueo HTTP no tumba al agente."""
-    tavily = _tavily_search(query)
+def _public_search(query: str, **options: Any) -> dict[str, Any]:
+    """Tavily o DuckDuckGo; nunca lanza: un bloqueo HTTP no tumba al agente.
+
+    `query` va limpia. El `site:` solo se compone para el proveedor de reserva, porque
+    Tavily filtra por dominio con un parámetro y el operador dentro del texto solo
+    ensuciaría la consulta semántica.
+    """
+    # Las herramientas mandan los controles siempre, casi todos vacíos: se descartan
+    # aquí para no llamar a Tavily con parámetros nulos.
+    options = {key: value for key, value in options.items() if value}
+    tavily = _tavily_search(query, **options)
     if tavily:
-        return {"provider": "tavily", "query": query, "results": tavily}
+        return {"provider": "tavily", "query": query, "results": tavily, **options}
+    fallback = _compose_dork(query, options.get("site"))
     try:
-        ddg = _duckduckgo_search(query)
+        ddg = _duckduckgo_search(fallback)
         if ddg:
-            return {"provider": "duckduckgo", "query": query, "results": ddg}
+            return {"provider": "duckduckgo", "query": fallback, "results": ddg}
         return {
             "provider": "duckduckgo",
-            "query": query,
+            "query": fallback,
             "results": [
                 {
-                    "title": f"Sin ficha instantánea para {query}",
+                    "title": f"Sin ficha instantánea para {fallback}",
                     "snippet": "DuckDuckGo Instant Answer no devolvió resultados. Reformula la consulta o usa otro dork.",
-                    "url": f"https://duckduckgo.com/?q={quote_plus(query)}",
+                    "url": f"https://duckduckgo.com/?q={quote_plus(fallback)}",
                 }
             ],
         }
@@ -220,12 +285,12 @@ def _public_search(query: str) -> dict[str, Any]:
         return {
             "mode": "demo",
             "provider": "web_search",
-            "query": query,
+            "query": fallback,
             "results": [
                 {
-                    "title": f"Resultados demo para {query}",
+                    "title": f"Resultados demo para {fallback}",
                     "snippet": "Sin Tavily ni DuckDuckGo disponibles. Búsqueda simulada.",
-                    "url": f"https://duckduckgo.com/?q={quote_plus(query)}",
+                    "url": f"https://duckduckgo.com/?q={quote_plus(fallback)}",
                 }
             ],
             "error": str(exc),
@@ -366,19 +431,24 @@ def _probe_url(url: str) -> dict[str, Any]:
 
 
 @tool("web_search", args_schema=WebSearchInput)
-def web_search(query: str) -> str:
+def web_search(query: str, topic: str | None = None, time_range: str | None = None) -> str:
     """Busca información pública en internet (Tavily si hay clave; si no, DuckDuckGo)."""
     mark_researching()
-    return json.dumps(_public_search(query), ensure_ascii=False)
+    payload = _public_search(query, topic=topic, time_range=time_range)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 @tool("advanced_dork_search", args_schema=AdvancedDorkSearchInput)
-def advanced_dork_search(query: str, site: str | None = None) -> str:
-    """Búsqueda profunda con dorks. Si hay site, fuerza `site:{sitio} {query}`."""
+def advanced_dork_search(
+    query: str,
+    site: str | None = None,
+    topic: str | None = None,
+    time_range: str | None = None,
+) -> str:
+    """Búsqueda profunda. Si hay site, restringe los resultados a ese dominio."""
     mark_researching()
-    composed = _compose_dork(query, site)
-    payload = _public_search(composed)
-    payload["dork"] = composed
+    payload = _public_search(query, site=site, topic=topic, time_range=time_range)
+    payload["dork"] = _compose_dork(query, site)
     payload["site"] = site
     payload["tool"] = "advanced_dork_search"
     return json.dumps(payload, ensure_ascii=False)
