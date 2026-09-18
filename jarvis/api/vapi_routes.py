@@ -385,10 +385,10 @@ def _unsaid_tail(streamed: str, final: str) -> str:
     return final
 
 
-def _detach(task: "asyncio.Future[str]") -> None:
+def _detach(task: asyncio.Future[str]) -> None:
     """El hilo del Supervisor no se puede cancelar: consume su resultado tardío."""
 
-    def _drain(done: "asyncio.Future[str]") -> None:
+    def _drain(done: asyncio.Future[str]) -> None:
         if done.cancelled():
             return
         error = done.exception()
@@ -400,10 +400,10 @@ def _detach(task: "asyncio.Future[str]") -> None:
     task.add_done_callback(_drain)
 
 
-def _abandon(task: "asyncio.Future[None]", session_id: str) -> None:
+def _abandon(task: asyncio.Future[None], session_id: str) -> None:
     """Deja de escuchar al grafo: su hilo seguirá, pero el turno ya se contestó."""
 
-    def _note(done: "asyncio.Future[None]") -> None:
+    def _note(done: asyncio.Future[None]) -> None:
         error = None if done.cancelled() else done.exception()
         if error is not None:
             logger.error("Vapi: call=%s el Supervisor falló tras el timeout", session_id, exc_info=error)
@@ -439,7 +439,7 @@ async def _spoken_within_budget(user_text: str, session_id: str) -> str:
 async def _speech_events(
     user_text: str,
     session_id: str,
-    queue: "asyncio.Queue[dict[str, Any] | None]",
+    queue: asyncio.Queue[dict[str, Any] | None],
 ) -> None:
     """Pasa a la cola lo que el grafo va produciendo; cierra siempre con el centinela.
 
@@ -495,7 +495,7 @@ async def _sse_supervisor_reply(
     la llamada. Siempre se cierra con `finish_reason` y `data: [DONE]`, incluso si
     algo explota por dentro.
     """
-    queue: "asyncio.Queue[dict[str, Any] | None]" = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
     pump = asyncio.ensure_future(_speech_events(user_text, session_id, queue))
     try:
         async for chunk in _sse_from_events(queue, session_id, completion_id):
@@ -508,7 +508,7 @@ async def _sse_supervisor_reply(
 
 
 async def _sse_from_events(
-    queue: "asyncio.Queue[dict[str, Any] | None]",
+    queue: asyncio.Queue[dict[str, Any] | None],
     session_id: str,
     completion_id: str,
 ) -> AsyncIterator[str]:
@@ -643,16 +643,16 @@ async def _sse_from_events(
 
     # Los tokens del ejecutor ya suelen ser la respuesta: solo se pronuncia lo que
     # la frase final añade, para no decir dos veces lo mismo.
-    pending = _unsaid_tail(gate.spoken, final) if gate.spoken else final
+    remaining = _unsaid_tail(gate.spoken, final) if gate.spoken else final
     _log_outgoing(session_id, final, started, stream=True, bridge=" ".join(bridge))
-    if not pending:
+    if not remaining:
         yield _openai_chunk(completion_id=cid, created=created, delta={}, finish_reason="stop")
         yield "data: [DONE]\n\n"
         return
-    if _needs_space(tail_char, pending):
+    if _needs_space(tail_char, remaining):
         yield _say(" ")
     async for chunk in _sse_openai_chunks(
-        pending, completion_id=cid, created=created, include_role=False
+        remaining, completion_id=cid, created=created, include_role=False
     ):
         yield chunk
 
