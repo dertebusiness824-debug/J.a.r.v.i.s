@@ -14,6 +14,31 @@ _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _MD = re.compile(r"[*_#>`~]+")
 _SPACE = re.compile(r"\s+")
 
+# Qué decir mientras una herramienta lenta trabaja. Un keep-alive silencioso
+# mantiene el socket pero no la llamada: Vapi la corta si nadie habla, así que las
+# esperas de red (Tavily, Hunter, Shopify) se narran. Las instantáneas
+# (calculadora, hora, listar el sandbox) no entran: narrarlas sobra.
+TOOL_NARRATION: dict[str, str] = {
+    "web_search": "Accediendo a la red global, maestro.",
+    "advanced_dork_search": "Aplicando operadores de búsqueda avanzados, maestro.",
+    "find_contact_info": "Cruzando datos de contacto, maestro.",
+    "find_public_emails": "Consultando los registros de correo, maestro.",
+    "username_lookup": "Rastreando alias públicos, maestro.",
+    "extract_social_profiles": "Rastreando perfiles públicos, maestro.",
+    "shopify_list_products": "Revisando el catálogo, maestro.",
+    "shopify_inventory_summary": "Revisando el inventario, maestro.",
+    "shopify_list_orders": "Revisando los pedidos, maestro.",
+    "send_whatsapp_message": "Enviando el WhatsApp, maestro.",
+    "send_zadarma_sms": "Enviando el SMS, maestro.",
+    "run_terminal": "Ejecutando el comando, maestro.",
+    "write_file": "Escribiendo el archivo, maestro.",
+}
+
+
+def narrate_tool(tool: str) -> str:
+    """Frase para acompañar a una herramienta lenta; vacío si no merece narrarse."""
+    return TOOL_NARRATION.get(str(tool or ""), "")
+
 
 def strip_markdown(text: str) -> str:
     cleaned = _FENCE.sub(" ", text or "")

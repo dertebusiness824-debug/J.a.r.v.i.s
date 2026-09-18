@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -15,7 +16,7 @@ from jarvis.agents import SPECIALIST_NODES
 from jarvis.config import get_settings
 from jarvis.llms import RouteDecision, get_supervisor_model, last_user_text
 from jarvis.memory import get_memory
-from jarvis.prompts import SUPERVISOR_PROMPT
+from jarvis.prompts import JARVIS_PERSONA, SUPERVISOR_PROMPT
 from jarvis.state import AgentState, SpecialistName
 
 SpecialistTarget = Literal[
@@ -70,6 +71,7 @@ def _route_with_llm(state: AgentState) -> RouteDecision:
     model = get_supervisor_model().with_structured_output(RouteDecision)
     return model.invoke(
         [
+            SystemMessage(content=JARVIS_PERSONA),
             SystemMessage(content=SUPERVISOR_PROMPT),
             HumanMessage(content=routing_card(state)),
         ]
@@ -202,6 +204,60 @@ async def arun_jarvis(query: str, *, session_id: str = "cli") -> AgentState:
     if answer:
         await asyncio.to_thread(get_memory().remember, f"Q: {query}\nA: {answer}")
     return result
+
+
+async def astream_jarvis(query: str, *, session_id: str = "cli") -> AsyncIterator[dict[str, Any]]:
+    """Turno del Supervisor como flujo de eventos, para hablar mientras aún trabaja.
+
+    Son eventos del grafo, no frases: quien escucha decide qué se pronuncia
+    (`jarvis.voice`) y a qué ritmo (el endpoint de Vapi).
+
+    - `tool`: una herramienta arrancó. Es el aviso de que empieza la espera larga
+      (Tavily, Hunter, Shopify), así que hay algo que contar en voz alta.
+    - `token`: el ejecutor está escribiendo. Solo salen los del nodo `executor`:
+      el planificador y el enrutado devuelven JSON estructurado, que no se puede
+      pronunciar. Requiere un modelo con streaming (`streaming=True`); si no lo
+      hay, este evento simplemente no aparece.
+    - `state`: estado final del grafo, del que sale la frase definitiva.
+    """
+    graph = get_supervisor_graph()
+    final_state: AgentState | None = None
+    async for event in graph.astream_events(
+        _initial_state(query), _run_config(session_id), version="v2"
+    ):
+        kind = event.get("event")
+        if kind == "on_tool_start":
+            yield {"kind": "tool", "tool": str(event.get("name") or "")}
+        elif kind == "on_chat_model_stream":
+            if (event.get("metadata") or {}).get("langgraph_node") != "executor":
+                continue
+            text = _chunk_text((event.get("data") or {}).get("chunk"))
+            if text:
+                yield {"kind": "token", "text": text}
+        elif kind == "on_chain_end" and not event.get("parent_ids"):
+            # Sin padres solo hay una cadena: el grafo raíz. Los subgrafos de los
+            # especialistas también se llaman "LangGraph", pero van anidados.
+            output = (event.get("data") or {}).get("output")
+            if isinstance(output, dict):
+                final_state = output  # type: ignore[assignment]
+    if final_state is None:
+        return
+    answer = extract_answer(final_state)
+    if answer:
+        await asyncio.to_thread(get_memory().remember, f"Q: {query}\nA: {answer}")
+    yield {"kind": "state", "state": final_state}
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Texto de un `AIMessageChunk`, venga como string o como bloques (Anthropic)."""
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text") or "") for part in content if isinstance(part, dict)
+        )
+    return ""
 
 
 def graph_mermaid() -> str:

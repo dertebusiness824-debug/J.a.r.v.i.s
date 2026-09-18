@@ -114,7 +114,7 @@ def _join_es(parts: list[str]) -> str:
 
 def formatear_briefing(mensajes: list[MensajeEntrante]) -> str:
     if not mensajes:
-        return "Sistemas en línea. No hay mensajes pendientes, señor."
+        return "Sistemas en línea. No hay mensajes pendientes, maestro."
     total = len(mensajes)
     cantidad = "1 mensaje" if total == 1 else f"{total} mensajes"
     counts = Counter(m.plataforma for m in mensajes)

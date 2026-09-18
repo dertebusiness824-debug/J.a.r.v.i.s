@@ -13,6 +13,32 @@ from jarvis.llms import Plan
 from jarvis.state import AgentState
 
 
+def test_the_persona_leads_every_prompt_that_writes_for_the_user(monkeypatch):
+    """El texto hablado lo redactan planificador y ejecutor: la personalidad va ahí."""
+    from langchain_core.messages import SystemMessage
+
+    from jarvis.agent_core import _planner_messages, executor_node
+    from jarvis.prompts import JARVIS_PERSONA
+
+    planner_first = _planner_messages({"messages": [HumanMessage(content="hola")]})[0]
+    assert isinstance(planner_first, SystemMessage)
+    assert planner_first.content == JARVIS_PERSONA
+
+    seen: list = []
+
+    class _Spy:
+        def bind_tools(self, _tools):
+            return self
+
+        def invoke(self, messages):
+            seen.extend(messages)
+            return AIMessage(content="Hecho, maestro.")
+
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _Spy())
+    executor_node({"messages": [HumanMessage(content="hola")]})
+    assert seen and seen[0].content == JARVIS_PERSONA
+
+
 def test_core_graph_compiles():
     graph = compile_core_graph()
     assert graph is not None

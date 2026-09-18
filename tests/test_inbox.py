@@ -18,7 +18,7 @@ def test_vapi_events_empty_inbox():
     assert res.status_code == 200
     body = res.json()
     spoken = body["assistant"]["firstMessage"]
-    assert spoken == "Sistemas en línea. No hay mensajes pendientes, señor."
+    assert spoken == "Sistemas en línea. No hay mensajes pendientes, maestro."
     assert body["assistant"]["model"]["provider"] == "custom-llm"
     assert body["assistant"]["model"]["url"] == VAPI_LLM_URL
     assert body["assistant"]["model"]["metadataSendMode"] == "off"

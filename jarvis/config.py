@@ -62,11 +62,17 @@ class Settings(BaseSettings):
     vapi_public_key: str | None = None
     vapi_assistant_id: str | None = None
     vapi_webhook_secret: str | None = None
-    vapi_response_timeout_seconds: float = 30.0
+    # Por debajo del `timeoutSeconds` (90) que Vapi aplica al Custom LLM: mientras
+    # la voz siga narrando el progreso no hay silencio que corte la llamada, así que
+    # una investigación larga cabe entera en vez de tirarse a la basura a los 30 s.
+    vapi_response_timeout_seconds: float = 75.0
     vapi_keepalive_seconds: float = 5.0
     # Margen antes de soltar la frase puente: si el Supervisor contesta dentro de
     # este tiempo no hay silencio que tapar y la llamada va directa a la respuesta.
     vapi_filler_delay_seconds: float = 0.15
+    # Silencio máximo en llamada: si el grafo no da señales en este tiempo se dice
+    # algo igualmente. Un comentario SSE no cuenta como voz para Vapi.
+    vapi_idle_speech_seconds: float = 9.0
 
     cartesia_api_key: str | None = None
     cartesia_voice_id: str | None = None

@@ -623,6 +623,10 @@ def get_executor_model() -> BaseChatModel:
         model=settings.executor_model,
         api_key=settings.openai_api_key,
         temperature=0,
+        # El ejecutor es el único que redacta para el usuario. Con `streaming=True`
+        # su `invoke` va emitiendo tokens, que `astream_jarvis` reexpide a Vapi para
+        # que la voz empiece a hablar sin esperar el mensaje completo.
+        streaming=True,
     )
 
 

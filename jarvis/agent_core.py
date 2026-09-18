@@ -18,7 +18,7 @@ from langgraph.prebuilt import ToolNode
 from jarvis.config import get_settings
 from jarvis.llms import Plan, get_executor_model, get_planner_model, last_user_text
 from jarvis.memory import get_memory
-from jarvis.prompts import EXECUTOR_PROMPT, PLANNER_PROMPT
+from jarvis.prompts import EXECUTOR_PROMPT, JARVIS_PERSONA, PLANNER_PROMPT
 from jarvis.state import AgentState, TaskItem, ToolResult
 from jarvis.tools import CORE_TOOLS, tools_by_agent
 
@@ -57,6 +57,7 @@ def _planner_messages(state: AgentState) -> list:
     specialist = state.get("specialist_system_prompt") or ""
     context = state.get("retrieved_context") or "(vacío)"
     extra = [
+        SystemMessage(content=JARVIS_PERSONA),
         SystemMessage(content=f"{PLANNER_PROMPT}\n{specialist}".strip()),
         SystemMessage(content=f"Contexto de memoria vectorial:\n{context}"),
     ]
@@ -133,6 +134,7 @@ def executor_node(state: AgentState) -> dict[str, Any]:
     plan = state.get("plan") or []
     plan_text = "\n".join(f"- {t.get('description')}" for t in plan) or "(sin plan)"
     messages = [
+        SystemMessage(content=JARVIS_PERSONA),
         SystemMessage(content=EXECUTOR_PROMPT),
         SystemMessage(content=f"Plan vigente:\n{plan_text}"),
         *(state.get("messages") or []),
