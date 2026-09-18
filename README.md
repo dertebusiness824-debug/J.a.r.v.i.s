@@ -103,15 +103,23 @@ Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/ja
 
 El Custom LLM de Vapi responde SSE al estilo OpenAI (`chat.completion.chunk` → `finish_reason: "stop"` → `data: [DONE]`). Mientras LangGraph piensa, el stream manda comentarios `: keep-alive` y, si el Supervisor pasa de `VAPI_RESPONSE_TIMEOUT_SECONDS` (30 s por defecto), contesta una frase de espera en vez de dejar la petición colgada: así Vapi nunca cierra con «Assistant Did Not Receive Response».
 
-El Supervisor se invoca con `arun_jarvis` (`graph.ainvoke`), nunca desde el event loop: LangGraph despacha los nodos síncronos a un hilo, así que los heartbeats siguen saliendo mientras el turno trabaja. Si algo falla dentro del grafo, el endpoint sigue devolviendo 200 con deltas válidos y Jarvis dice «Error interno del sistema» en voz alta (la traza completa queda en el log del servidor), en vez de cortar el stream y dejar la llamada muda.
+El stream va en dos fases para que la llamada no se quede muda mientras las herramientas trabajan:
+
+1. **Frase puente.** El grafo arranca al recibir la petición y, si no ha contestado en `VAPI_FILLER_DELAY_SECONDS` (0,15 s por defecto), sale un delta con una frase corta al azar («Analizando la directiva…», «Accediendo a los sistemas…»). Vapi la pronuncia al instante, lo que regala dos o tres segundos de proceso. No se repite la frase del turno anterior de la misma llamada, y si el Supervisor contesta dentro de ese margen no se dice nada: una pregunta rápida no se alarga con relleno.
+2. **Respuesta real.** Al terminar el grafo se manda la frase hablable en deltas, separada de la frase puente por un espacio, y se cierra con `finish_reason: "stop"` y `data: [DONE]`.
+
+Los deltas llevan la frase ya compuesta por `spoken_from_state`, no los tokens crudos del modelo: esa frase necesita el estado final del grafo (resultados de herramientas incluidos), y hacer stream token a token del LLM le haría leer en voz alta JSON de herramientas y borradores intermedios.
+
+El Supervisor se invoca con `arun_jarvis` (`graph.ainvoke`), nunca desde el event loop: LangGraph despacha los nodos síncronos a un hilo, así que los heartbeats siguen saliendo mientras el turno trabaja. Si algo falla dentro del grafo, el endpoint sigue devolviendo 200 con deltas válidos y Jarvis dice «Maestro, ha habido un fallo en la red neuronal» en voz alta (la traza completa queda en el log del servidor), en vez de cortar el stream y dejar la llamada muda.
 
 Cada turno deja rastro en la consola (Render, Railway o local) para saber en qué eslabón se rompe la llamada:
 
 | Marca | Significado |
 | --- | --- |
 | `🔥 [VAPI INCOMING]` | Llegó la petición: `call`, `stream` y el mensaje del usuario. Si no aparece, Vapi no está llamando a este servicio (revisa la URL del Custom LLM). Sale como `WARNING` con el payload completo cuando el JSON no trae ningún turno de usuario. |
+| `🗣️ [VAPI FILLER]` | Frase puente que se dijo mientras el grafo trabajaba, y a qué segundo salió. Si nunca aparece, el grafo está contestando dentro del margen y no hace falta. |
 | `🧠 [VAPI SUPERVISOR]` | El grafo terminó: especialista elegido y herramientas usadas. |
-| `✅ [VAPI OUTGOING]` | Frase que se manda a la voz y segundos que tardó el turno. |
+| `✅ [VAPI OUTGOING]` | Frase que se manda a la voz, frase puente usada (`puente=`) y segundos que tardó el turno. |
 | `⚠️ [VAPI TIMEOUT]` | El Supervisor pasó de `VAPI_RESPONSE_TIMEOUT_SECONDS`: se contesta la frase de espera. Si sale a menudo, sube el límite o revisa qué herramienta se atasca. |
 | `💥 [VAPI ERROR]` | Fallo interno con traza completa; Vapi recibió la respuesta de error hablada. |
 | `🔁 [CORE LOOP]` | El subgrafo de un especialista no cerró dentro del presupuesto de vueltas y se respondió con el mejor borrador disponible. |

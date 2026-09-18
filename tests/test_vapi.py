@@ -6,7 +6,14 @@ import time
 from fastapi.testclient import TestClient
 
 from jarvis.api.app import create_app
-from jarvis.api.vapi_routes import ERROR_REPLY, SLOW_REPLY
+from jarvis.api.vapi_routes import ERROR_REPLY, FILLER_PHRASES, SLOW_REPLY
+
+
+def _instant_supervisor(answer: str):
+    async def _run(text, session_id=None):
+        return {"final_answer": answer}
+
+    return _run
 
 
 def _slow_supervisor(delay: float):
@@ -141,9 +148,99 @@ def test_vapi_sse_sends_keepalive_while_supervisor_thinks(monkeypatch):
         assert res.status_code == 200
         lines = [line for line in res.iter_lines() if line.strip()]
     assert ": keep-alive" in lines
-    assert "".join(_sse_content(line) for line in lines) == "Listo tras 0.3 segundos."
+    spoken = "".join(_sse_content(line) for line in lines)
+    assert spoken.endswith("Listo tras 0.3 segundos.")
+    assert spoken.split(" Listo")[0] in FILLER_PHRASES
     assert lines[-1] == "data: [DONE]"
     get_settings.cache_clear()
+
+
+def test_vapi_sse_speaks_a_filler_before_langgraph_answers(monkeypatch):
+    """Fase 1: la voz arranca en milisegundos aunque el grafo tarde segundos."""
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.1")
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(1.5))
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+
+    async def collect() -> list[tuple[float, str]]:
+        started = time.monotonic()
+        events = []
+        async for chunk in _sse_supervisor_reply("hola", "call-filler", "chatcmpl-test"):
+            events.append((time.monotonic() - started, chunk))
+        return events
+
+    events = asyncio.run(collect())
+    deltas = [(at, _sse_content(line)) for at, chunk in events for line in chunk.splitlines()]
+    said = [(at, text) for at, text in deltas if text.strip()]
+    assert said, "el stream debe llevar texto hablado"
+    first_at, first_text = said[0]
+    assert first_text in FILLER_PHRASES
+    assert first_at < 0.5, f"la frase puente llegó tarde ({first_at:.2f} s)"
+    assert first_at < events[-1][0] / 2, "la frase puente debe adelantarse mucho a la respuesta"
+    # El separador cuenta: sin él el TTS diría "directiva…Listo".
+    assert "".join(text for _at, text in deltas) == f"{first_text} Listo tras 1.5 segundos."
+    get_settings.cache_clear()
+
+
+def test_vapi_sse_skips_the_filler_when_the_answer_is_instant(monkeypatch):
+    """Sin silencio que tapar no se añade paja: la respuesta va sola."""
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _instant_supervisor("Son 408."))
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={"stream": True, "messages": [{"role": "user", "content": "¿Cuánto es 17 * 24?"}]},
+    ) as res:
+        assert res.status_code == 200
+        lines = [line for line in res.iter_lines() if line.strip()]
+    assert "".join(_sse_content(line) for line in lines) == "Son 408."
+    assert lines[-1] == "data: [DONE]"
+
+
+def test_vapi_filler_does_not_repeat_itself_in_the_same_call():
+    from jarvis.api.vapi_routes import pick_filler
+
+    previous = ""
+    for _turn in range(12):
+        phrase = pick_filler("call-rotation")
+        assert phrase in FILLER_PHRASES
+        assert phrase != previous, "dos turnos seguidos con la misma frase suenan a bucle"
+        previous = phrase
+
+
+def test_vapi_logs_the_filler_it_spoke(monkeypatch, caplog):
+    monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.05")
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.4))
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/webhooks/vapi-llm/chat/completions",
+        json={"stream": True, "call": {"id": "voice-filler"}, "messages": [{"role": "user", "content": "hola"}]},
+    ) as res:
+        assert res.status_code == 200
+        "".join(res.iter_text())
+    fillers = [rec.getMessage() for rec in caplog.records if "[VAPI FILLER]" in rec.getMessage()]
+    outgoing = [rec.getMessage() for rec in caplog.records if "[VAPI OUTGOING]" in rec.getMessage()]
+    assert fillers and "voice-filler" in fillers[0]
+    assert outgoing and "puente=" in outgoing[0]
+    get_settings.cache_clear()
+
+
+def test_vapi_json_path_never_speaks_a_filler(monkeypatch):
+    """Sin stream no hay dos fases: una frase puente sería la respuesta entera."""
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.3))
+    client = TestClient(create_app())
+    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == "Listo tras 0.3 segundos."
 
 
 def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
@@ -168,7 +265,8 @@ def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
     spoken = "".join(_sse_content(line) for line in lines)
     assert events[0][0] < 0.5, "el primer chunk debe salir de inmediato"
     assert events[-1][0] < 2.5, "el stream no debe esperar a que el Supervisor termine"
-    assert spoken == SLOW_REPLY
+    assert spoken.endswith(SLOW_REPLY)
+    assert spoken[: -len(SLOW_REPLY)].strip() in FILLER_PHRASES
     assert ": keep-alive" in lines
     assert '"finish_reason": "stop"' in " ".join(lines)
     assert lines[-1] == "data: [DONE]"

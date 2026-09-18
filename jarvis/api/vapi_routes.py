@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -30,9 +31,22 @@ KEEPALIVE = ": keep-alive\n\n"
 SLOW_REPLY = "Sigo procesando la petición, señor. Dame unos segundos y pregúntame de nuevo."
 # Se dice en voz alta a propósito: si Vapi lo pronuncia, el endpoint sí respondió
 # y el fallo está dentro del Supervisor (traza completa en el log del servidor).
-ERROR_REPLY = "Error interno del sistema. Revisa la terminal del servidor, señor."
+ERROR_REPLY = "Maestro, ha habido un fallo en la red neuronal. Revisa la terminal del servidor."
+# Frases puente. Vapi habla en cuanto recibe el primer delta con texto, así que
+# esto convierte el silencio de LangGraph en tiempo de proceso gratis.
+FILLER_PHRASES = (
+    "Un momento, por favor…",
+    "Analizando la directiva…",
+    "Accediendo a los sistemas…",
+    "Procesando, señor…",
+    "Consultando la red neuronal…",
+)
 # Los payloads de Vapi traen la conversación entera: en el log solo cabe un adelanto.
 LOG_PREVIEW_CHARS = 800
+# Última frase puente por llamada: repetirla en dos turnos seguidos suena a bucle.
+# Es una caché, no un registro: se vacía sola para no crecer con cada llamada.
+_LAST_FILLER: dict[str, str] = {}
+_FILLER_MEMORY = 256
 
 
 class TtsRequest(BaseModel):
@@ -228,11 +242,19 @@ def _log_incoming(payload: dict[str, Any], user_text: str, session_id: str, *, s
     )
 
 
-def _log_outgoing(session_id: str, spoken: str, started: float, *, stream: bool) -> None:
+def _log_outgoing(
+    session_id: str,
+    spoken: str,
+    started: float,
+    *,
+    stream: bool,
+    filler: str = "",
+) -> None:
     logger.info(
-        "✅ [VAPI OUTGOING] call=%s stream=%s en %.2f s: %r",
+        "✅ [VAPI OUTGOING] call=%s stream=%s puente=%r en %.2f s: %r",
         session_id,
         stream,
+        filler,
         time.monotonic() - started,
         spoken,
     )
@@ -244,6 +266,21 @@ def _budget() -> tuple[float, float]:
         max(float(settings.vapi_response_timeout_seconds), 1.0),
         max(float(settings.vapi_keepalive_seconds), 0.1),
     )
+
+
+def _filler_delay() -> float:
+    return max(float(get_settings().vapi_filler_delay_seconds), 0.0)
+
+
+def pick_filler(session_id: str) -> str:
+    """Frase puente al azar, sin repetir la del turno anterior de esta llamada."""
+    previous = _LAST_FILLER.get(session_id)
+    options = [phrase for phrase in FILLER_PHRASES if phrase != previous]
+    phrase = random.choice(options or list(FILLER_PHRASES))
+    if len(_LAST_FILLER) >= _FILLER_MEMORY:
+        _LAST_FILLER.clear()
+    _LAST_FILLER[session_id] = phrase
+    return phrase
 
 
 def _detach(task: "asyncio.Future[str]") -> None:
@@ -288,10 +325,13 @@ async def _sse_supervisor_reply(
     session_id: str,
     completion_id: str,
 ) -> AsyncIterator[str]:
-    """Primer chunk inmediato, heartbeat mientras piensa y texto con tope de tiempo.
+    """Streaming en dos fases para que la llamada nunca se quede muda.
 
-    Cualquier fallo termina en voz: Vapi siempre recibe deltas + `finish_reason`
-    + `data: [DONE]`, nunca un stream cortado a medias.
+    Fase 1: el Supervisor arranca ya y, si no contesta en el primer parpadeo, sale
+    una frase puente como delta de texto. Vapi la pronuncia al instante, lo que
+    regala unos segundos de proceso. Fase 2: mientras LangGraph trabaja solo van
+    keep-alives. Fase 3: la respuesta real, y siempre `finish_reason` +
+    `data: [DONE]`, incluso si algo explota por dentro.
     """
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
@@ -303,10 +343,14 @@ async def _sse_supervisor_reply(
         finish_reason=None,
     )
     spoken = ERROR_REPLY
+    filler = ""
     try:
         timeout, beat = _budget()
         task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
         deadline = started + timeout
+        # El primer tramo es corto a propósito: es el margen para decidir si hace
+        # falta la frase puente. A partir de ahí se espera a ritmo de keep-alive.
+        slice_seconds = _filler_delay()
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -319,23 +363,49 @@ async def _sse_supervisor_reply(
                 spoken = SLOW_REPLY
                 break
             try:
-                spoken = await asyncio.wait_for(asyncio.shield(task), timeout=min(beat, remaining))
+                spoken = await asyncio.wait_for(
+                    asyncio.shield(task), timeout=min(slice_seconds, remaining)
+                )
                 break
             except asyncio.TimeoutError:
                 # `TimeoutError` también puede venir del propio Supervisor (HTTP de
                 # una herramienta): si la tarea ya acabó, el resultado manda.
-                if not task.done():
+                if task.done():
+                    spoken = task.result()
+                    break
+                if not filler:
+                    filler = pick_filler(session_id)
+                    logger.info(
+                        "🗣️ [VAPI FILLER] call=%s a los %.2f s: %r",
+                        session_id,
+                        time.monotonic() - started,
+                        filler,
+                    )
+                    yield _openai_chunk(
+                        completion_id=cid,
+                        created=created,
+                        delta={"content": filler},
+                        finish_reason=None,
+                    )
+                else:
                     yield KEEPALIVE
-                    continue
-                spoken = task.result()
-                break
+                slice_seconds = beat
+                continue
     except Exception:
         logger.exception(
             "💥 [VAPI ERROR] call=%s fallo interno: respondo con voz para no dejar la llamada muda",
             session_id,
         )
         spoken = ERROR_REPLY
-    _log_outgoing(session_id, spoken, started, stream=True)
+    _log_outgoing(session_id, spoken, started, stream=True, filler=filler)
+    if filler:
+        # Separador entre la frase puente y la respuesta: sin él el TTS las pega.
+        yield _openai_chunk(
+            completion_id=cid,
+            created=created,
+            delta={"content": " "},
+            finish_reason=None,
+        )
     async for chunk in _sse_openai_chunks(
         spoken, completion_id=cid, created=created, include_role=False
     ):
