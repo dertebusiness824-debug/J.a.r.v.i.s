@@ -33,6 +33,56 @@ def _broken_supervisor(error: BaseException):
     return _run
 
 
+def _instant_stream(answer: str):
+    async def _stream(text, session_id=None):
+        yield {"kind": "state", "state": {"final_answer": answer}}
+
+    return _stream
+
+
+def _slow_stream(delay: float, *, events: list[dict] | None = None):
+    """Grafo lento: bloquea su hilo, como el LangGraph real (LLM + requests)."""
+
+    async def _stream(text, session_id=None):
+        for event in events or []:
+            yield event
+        await asyncio.to_thread(time.sleep, delay)
+        yield {"kind": "state", "state": {"final_answer": f"Listo tras {delay} segundos."}}
+
+    return _stream
+
+
+def _broken_stream(error: BaseException):
+    async def _stream(text, session_id=None):
+        raise error
+        yield {}  # pragma: no cover - marca la función como generadora
+
+    return _stream
+
+
+def _collect_sse(user_text: str = "hola", session: str = "call-test") -> list[tuple[float, str]]:
+    """Chunks del generador SSE con el instante en que los suelta."""
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+
+    async def _run() -> list[tuple[float, str]]:
+        started = time.monotonic()
+        events = []
+        async for chunk in _sse_supervisor_reply(user_text, session, "chatcmpl-test"):
+            events.append((time.monotonic() - started, chunk))
+        return events
+
+    return asyncio.run(_run())
+
+
+def _said(events: list[tuple[float, str]]) -> list[tuple[float, str]]:
+    deltas = [(at, _sse_content(line)) for at, chunk in events for line in chunk.splitlines()]
+    return [(at, text) for at, text in deltas if text.strip()]
+
+
+def _spoken(events: list[tuple[float, str]]) -> str:
+    return "".join(_sse_content(line) for _at, chunk in events for line in chunk.splitlines())
+
+
 def _sse_content(line: str) -> str:
     """Texto del delta de un chunk OpenAI; '' para keep-alives y para [DONE]."""
     if not line.startswith("data: ") or line.strip() == "data: [DONE]":
@@ -135,7 +185,7 @@ def test_vapi_openai_path_aliases_stream():
 def test_vapi_sse_sends_keepalive_while_supervisor_thinks(monkeypatch):
     monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.05")
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.3))
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(0.3))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
@@ -160,35 +210,25 @@ def test_vapi_sse_speaks_a_filler_before_langgraph_answers(monkeypatch):
     monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
     monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.1")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(1.5))
-    from jarvis.api.vapi_routes import _sse_supervisor_reply
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(1.5))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
-
-    async def collect() -> list[tuple[float, str]]:
-        started = time.monotonic()
-        events = []
-        async for chunk in _sse_supervisor_reply("hola", "call-filler", "chatcmpl-test"):
-            events.append((time.monotonic() - started, chunk))
-        return events
-
-    events = asyncio.run(collect())
-    deltas = [(at, _sse_content(line)) for at, chunk in events for line in chunk.splitlines()]
-    said = [(at, text) for at, text in deltas if text.strip()]
+    events = _collect_sse(session="call-filler")
+    said = _said(events)
     assert said, "el stream debe llevar texto hablado"
     first_at, first_text = said[0]
     assert first_text in FILLER_PHRASES
     assert first_at < 0.5, f"la frase puente llegó tarde ({first_at:.2f} s)"
     assert first_at < events[-1][0] / 2, "la frase puente debe adelantarse mucho a la respuesta"
     # El separador cuenta: sin él el TTS diría "directiva…Listo".
-    assert "".join(text for _at, text in deltas) == f"{first_text} Listo tras 1.5 segundos."
+    assert _spoken(events) == f"{first_text} Listo tras 1.5 segundos."
     get_settings.cache_clear()
 
 
 def test_vapi_sse_skips_the_filler_when_the_answer_is_instant(monkeypatch):
     """Sin silencio que tapar no se añade paja: la respuesta va sola."""
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _instant_supervisor("Son 408."))
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _instant_stream("Son 408."))
     client = TestClient(create_app())
     with client.stream(
         "POST",
@@ -214,7 +254,7 @@ def test_vapi_filler_does_not_repeat_itself_in_the_same_call():
 
 def test_vapi_logs_the_filler_it_spoke(monkeypatch, caplog):
     monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.05")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.4))
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(0.4))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
@@ -234,6 +274,169 @@ def test_vapi_logs_the_filler_it_spoke(monkeypatch, caplog):
     get_settings.cache_clear()
 
 
+def test_vapi_narrates_the_tool_it_is_waiting_for(monkeypatch):
+    """Tavily tarda segundos: la voz cuenta lo que pasa en vez de callarse."""
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.1")
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _slow_stream(1.2, events=[{"kind": "tool", "tool": "web_search"}]),
+    )
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    events = _collect_sse(user_text="investiga a quien sea", session="call-narra")
+    said = [text for _at, text in _said(events)]
+    assert "Accediendo a la red global, maestro." in said
+    narration_at = next(at for at, text in _said(events) if "red global" in text)
+    answer_at = next(at for at, text in _said(events) if "Listo tras" in text)
+    assert narration_at < answer_at, "la narración va mientras la herramienta trabaja"
+    assert _spoken(events).endswith("Listo tras 1.2 segundos.")
+    get_settings.cache_clear()
+
+
+def test_vapi_does_not_narrate_a_tool_that_answers_at_once(monkeypatch):
+    """Anunciar una herramienta instantánea solo alarga la respuesta."""
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _slow_stream(0.05, events=[{"kind": "tool", "tool": "shopify_inventory_summary"}]),
+    )
+    spoken = _spoken(_collect_sse(session="call-fast-tool"))
+    assert spoken == "Listo tras 0.05 segundos."
+    assert "Revisando" not in spoken
+
+
+def test_vapi_does_not_narrate_the_same_tool_twice(monkeypatch):
+    """El research_agent repite web_search: decirlo cada vez suena a disco rayado."""
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+
+    async def _stream(text, session_id=None):
+        for _round in range(3):
+            yield {"kind": "tool", "tool": "web_search"}
+            yield {"kind": "tool", "tool": "calculate_expression"}
+            await asyncio.to_thread(time.sleep, 0.8)
+        yield {"kind": "state", "state": {"final_answer": "Información pública recopilada."}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    spoken = _spoken(_collect_sse(session="call-repeat"))
+    assert spoken.count("Accediendo a la red global") == 1
+    # La calculadora es instantánea: narrarla solo añadiría ruido.
+    assert "calculate_expression" not in spoken
+    assert spoken.endswith("Información pública recopilada.")
+    get_settings.cache_clear()
+
+
+def test_vapi_speaks_again_when_the_graph_goes_quiet(monkeypatch):
+    """Un silencio largo cuelga la llamada: cada pocos segundos se dice algo."""
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.05")
+    monkeypatch.setenv("VAPI_IDLE_SPEECH_SECONDS", "0.5")
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(1.4))
+    from jarvis.api.vapi_routes import WAIT_PHRASES
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    said = [text for _at, text in _said(_collect_sse(session="call-idle"))]
+    waits = [text for text in said if text in WAIT_PHRASES]
+    assert said[0] in FILLER_PHRASES
+    assert len(waits) >= 2, f"con 1.4 s de silencio deben salir varias esperas: {said}"
+    assert waits[0] != waits[1], "dos esperas seguidas iguales suenan a bucle"
+    get_settings.cache_clear()
+
+
+def test_vapi_streams_the_executor_tokens_as_they_arrive(monkeypatch):
+    """Fase 3 real: la voz empieza la respuesta antes de que el grafo cierre."""
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+
+    async def _stream(text, session_id=None):
+        for token in ("La temperatura", " es de 22", " grados, maestro."):
+            await asyncio.sleep(0.05)
+            yield {"kind": "token", "text": token}
+        await asyncio.sleep(0.05)
+        yield {"kind": "state", "state": {"final_answer": "La temperatura es de 22 grados, maestro."}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    events = _collect_sse(session="call-tokens")
+    said = _said(events)
+    assert said[0][1].startswith("La temperatura")
+    assert said[0][0] < events[-1][0], "el primer token no espera al final del grafo"
+    # La frase final es el borrador que ya se dijo: repetirla sonaría a tartamudeo.
+    assert _spoken(events) == "La temperatura es de 22 grados, maestro."
+    get_settings.cache_clear()
+
+
+def test_vapi_completes_the_answer_the_tokens_left_half_said(monkeypatch):
+    """Si `to_spoken` añade algo al borrador, solo se pronuncia lo que falta."""
+
+    async def _stream(text, session_id=None):
+        yield {"kind": "token", "text": "Inventario revisado."}
+        yield {
+            "kind": "state",
+            "state": {"final_answer": "Inventario revisado. Tienes 42 en stock."},
+        }
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    assert _spoken(_collect_sse(session="call-tail")) == "Inventario revisado. Tienes 42 en stock."
+
+
+def test_vapi_never_speaks_raw_tool_output(monkeypatch):
+    """Un volcado JSON no se pronuncia: habla la frase de `to_spoken`."""
+
+    async def _stream(text, session_id=None):
+        yield {"kind": "token", "text": '{"products": [{"title"'}
+        yield {"kind": "token", "text": ': "Auriculares"}]}'}
+        yield {"kind": "state", "state": {"final_answer": "Inventario revisado."}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    spoken = _spoken(_collect_sse(session="call-json"))
+    assert spoken == "Inventario revisado."
+    assert "{" not in spoken
+
+
+def test_vapi_drops_the_graph_when_the_call_hangs_up(monkeypatch):
+    """Si Vapi cuelga a mitad del stream, el turno se suelta en vez de quedar colgado."""
+    marks: list[str] = []
+
+    async def _stream(text, session_id=None):
+        try:
+            await asyncio.sleep(5)
+            yield {"kind": "state", "state": {"final_answer": "tarde"}}
+        except asyncio.CancelledError:
+            marks.append("cancelado")
+            raise
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+
+    async def scenario() -> None:
+        stream = _sse_supervisor_reply("hola", "call-hangup", "chatcmpl-test")
+        assert '"role": "assistant"' in await stream.__anext__()
+        # Un segundo chunk (la frase puente) obliga al turno a estar ya en marcha.
+        assert _sse_content(await stream.__anext__()) in FILLER_PHRASES
+        await stream.aclose()
+        await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+    assert marks == ["cancelado"]
+
+
+def test_unsaid_tail_only_returns_what_is_missing():
+    from jarvis.api.vapi_routes import _unsaid_tail
+
+    assert _unsaid_tail("Inventario revisado.", "Inventario revisado.") == ""
+    assert _unsaid_tail("Inventario revisado", "Inventario revisado. Hay 3 productos.") == (
+        "Hay 3 productos."
+    )
+    assert _unsaid_tail("", "Listo.") == "Listo."
+    assert _unsaid_tail("Hola", "Archivo actualizado.") == "Archivo actualizado."
+
+
 def test_vapi_json_path_never_speaks_a_filler(monkeypatch):
     """Sin stream no hay dos fases: una frase puente sería la respuesta entera."""
     monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.3))
@@ -247,22 +450,13 @@ def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
     """El stream cierra al vencer el presupuesto, no cuando el Supervisor acaba."""
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
     monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(4))
-    from jarvis.api.vapi_routes import _sse_supervisor_reply
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(4))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
-
-    async def collect() -> list[tuple[float, str]]:
-        started = time.monotonic()
-        events = []
-        async for chunk in _sse_supervisor_reply("hola", "test", "chatcmpl-test"):
-            events.append((time.monotonic() - started, chunk))
-        return events
-
-    events = asyncio.run(collect())
+    events = _collect_sse()
     lines = [line for _at, chunk in events for line in chunk.splitlines() if line.strip()]
-    spoken = "".join(_sse_content(line) for line in lines)
+    spoken = _spoken(events)
     assert events[0][0] < 0.5, "el primer chunk debe salir de inmediato"
     assert events[-1][0] < 2.5, "el stream no debe esperar a que el Supervisor termine"
     assert spoken.endswith(SLOW_REPLY)
@@ -292,8 +486,8 @@ def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
 def test_vapi_sse_speaks_the_error_when_the_supervisor_explodes(monkeypatch, caplog):
     """Un fallo interno se dice en voz alta: nunca un stream cortado sin [DONE]."""
     monkeypatch.setattr(
-        "jarvis.api.vapi_routes.arun_jarvis",
-        _broken_supervisor(RuntimeError("LangGraph roto")),
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _broken_stream(RuntimeError("LangGraph roto")),
     )
     caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
     client = TestClient(create_app())
@@ -315,8 +509,8 @@ def test_vapi_sse_does_not_mistake_a_tool_timeout_for_slowness(monkeypatch):
     """`TimeoutError` del Supervisor es un error, no el heartbeat venciendo."""
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
     monkeypatch.setattr(
-        "jarvis.api.vapi_routes.arun_jarvis",
-        _broken_supervisor(TimeoutError("una herramienta HTTP expiró")),
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _broken_stream(TimeoutError("una herramienta HTTP expiró")),
     )
     from jarvis.config import get_settings
 

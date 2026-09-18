@@ -130,6 +130,59 @@ def test_arun_jarvis_keeps_the_event_loop_free(monkeypatch):
     assert beats >= 3, "el loop siguió bloqueado mientras LangGraph trabajaba"
 
 
+def test_astream_jarvis_reports_tools_before_the_final_state():
+    """El endpoint de Vapi necesita saber de la herramienta mientras trabaja, no después."""
+    from jarvis.supervisor import astream_jarvis
+
+    async def collect() -> list[dict]:
+        return [
+            event
+            async for event in astream_jarvis("Lista los productos de Shopify", session_id="t-stream")
+        ]
+
+    events = asyncio.run(collect())
+    kinds = [event["kind"] for event in events]
+    assert kinds[-1] == "state", "el estado final cierra el flujo"
+    assert kinds.count("state") == 1, "solo el grafo raíz entrega estado, no los subgrafos"
+    tools = [event["tool"] for event in events if event["kind"] == "tool"]
+    assert "shopify_list_products" in tools
+    assert kinds.index("tool") < kinds.index("state")
+    assert "Auriculares Jarvis" in extract_answer(events[-1]["state"])
+
+
+def test_astream_jarvis_only_streams_tokens_the_user_can_hear(monkeypatch):
+    """El planificador devuelve JSON estructurado: sus tokens no se pueden pronunciar."""
+    from langchain_core.messages import AIMessage, AIMessageChunk
+    from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+
+    from jarvis.llms import OfflineChatModel
+    from jarvis.supervisor import astream_jarvis
+
+    class _StreamingExecutor(OfflineChatModel):
+        """Modelo que emite tokens como uno real con `streaming=True`."""
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            text = "Hecho, maestro."
+            for token in text.split(" "):
+                piece = f"{token} "
+                if run_manager is not None:
+                    run_manager.on_llm_new_token(
+                        piece,
+                        chunk=ChatGenerationChunk(message=AIMessageChunk(content=piece)),
+                    )
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
+
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _StreamingExecutor())
+
+    async def collect() -> list[dict]:
+        return [event async for event in astream_jarvis("Dime la hora", session_id="t-tokens")]
+
+    events = asyncio.run(collect())
+    tokens = "".join(event["text"] for event in events if event["kind"] == "token")
+    assert tokens.strip() == "Hecho, maestro."
+    assert "{" not in tokens and "is_complete" not in tokens
+
+
 def test_supervisor_routes_research_osint(monkeypatch):
     monkeypatch.setattr(
         "jarvis.agents.research_agent._tavily_search",

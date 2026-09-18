@@ -1,6 +1,22 @@
 from jarvis.api.vapi_routes import extract_user_turn, openai_completion
-from jarvis.prompts import SUPERVISOR_PROMPT
-from jarvis.voice import strip_markdown, to_spoken
+from jarvis.prompts import JARVIS_PERSONA, SUPERVISOR_PROMPT
+from jarvis.voice import narrate_tool, strip_markdown, to_spoken
+
+
+def test_persona_states_the_voice_rules():
+    assert "J.A.R.V.I.S" in JARVIS_PERSONA
+    assert "maestro" in JARVIS_PERSONA
+    assert "optimizadas para voz" in JARVIS_PERSONA
+    assert "Markdown" in JARVIS_PERSONA
+
+
+def test_narration_covers_the_slow_tools_only():
+    assert narrate_tool("web_search") == "Accediendo a la red global, maestro."
+    assert "maestro" in narrate_tool("find_public_emails")
+    # Instantáneas: narrarlas solo añadiría ruido a la llamada.
+    assert narrate_tool("calculate_expression") == ""
+    assert narrate_tool("get_current_time") == ""
+    assert narrate_tool("") == ""
 
 
 def test_supervisor_prompt_is_voice_ready():

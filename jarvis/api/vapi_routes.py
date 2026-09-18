@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -18,8 +19,8 @@ from pydantic import BaseModel, Field
 from jarvis.config import get_settings
 from jarvis.api.vapi_events import custom_llm_model
 from jarvis.integrations.cartesia import CartesiaClient
-from jarvis.supervisor import arun_jarvis
-from jarvis.voice import spoken_from_state
+from jarvis.supervisor import arun_jarvis, astream_jarvis
+from jarvis.voice import narrate_tool, spoken_from_state, strip_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -28,25 +29,39 @@ router = APIRouter()
 # Comentario SSE: el cliente lo ignora, pero mantiene viva la conexión mientras
 # LangGraph trabaja, así Vapi no cierra la llamada con "Did Not Receive Response".
 KEEPALIVE = ": keep-alive\n\n"
-SLOW_REPLY = "Sigo procesando la petición, señor. Dame unos segundos y pregúntame de nuevo."
+SLOW_REPLY = "Sigo procesando la petición, maestro. Deme unos segundos y pregúnteme de nuevo."
 # Se dice en voz alta a propósito: si Vapi lo pronuncia, el endpoint sí respondió
 # y el fallo está dentro del Supervisor (traza completa en el log del servidor).
-ERROR_REPLY = "Maestro, ha habido un fallo en la red neuronal. Revisa la terminal del servidor."
+ERROR_REPLY = "Mis sistemas han fallado, maestro. Revise los registros del servidor."
 # Frases puente. Vapi habla en cuanto recibe el primer delta con texto, así que
 # esto convierte el silencio de LangGraph en tiempo de proceso gratis.
 FILLER_PHRASES = (
     "Un momento, por favor…",
     "Analizando la directiva…",
     "Accediendo a los sistemas…",
-    "Procesando, señor…",
+    "Procesando, maestro…",
     "Consultando la red neuronal…",
 )
+# Para cuando el grafo lleva un rato sin dar señales (una herramienta lenta que ya
+# se narró, un LLM pensando). Callarse es lo único que Vapi no perdona.
+WAIT_PHRASES = (
+    "Sigo en ello, maestro…",
+    "Un instante más, maestro…",
+    "Casi lo tengo, maestro…",
+    "Continúo con el análisis, maestro…",
+)
+# Dos narraciones seguidas suenan a atropello: el research_agent encadena varias
+# herramientas en menos de un segundo.
+NARRATION_MIN_GAP_SECONDS = 2.0
+# La narración espera un poco antes de salir: una herramienta que termina en este
+# tiempo no necesita presentación, y anunciarla alargaría la respuesta sin motivo.
+NARRATION_DELAY_SECONDS = 0.5
 # Los payloads de Vapi traen la conversación entera: en el log solo cabe un adelanto.
 LOG_PREVIEW_CHARS = 800
-# Última frase puente por llamada: repetirla en dos turnos seguidos suena a bucle.
+# Última frase dicha por llamada y pozo: repetirla seguida suena a bucle.
 # Es una caché, no un registro: se vacía sola para no crecer con cada llamada.
-_LAST_FILLER: dict[str, str] = {}
-_FILLER_MEMORY = 256
+_LAST_PHRASE: dict[str, str] = {}
+_PHRASE_MEMORY = 256
 
 
 class TtsRequest(BaseModel):
@@ -198,17 +213,21 @@ async def _sse_openai_chunks(
     yield "data: [DONE]\n\n"
 
 
+def _log_supervisor(session_id: str, state: dict[str, Any]) -> None:
+    logger.info(
+        "🧠 [VAPI SUPERVISOR] call=%s agente=%s herramientas=%s",
+        session_id,
+        state.get("active_agent") or "supervisor",
+        [str(item.get("tool") or "") for item in (state.get("tool_results") or [])],
+    )
+
+
 async def _supervisor_spoken(user_text: str, session_id: str) -> str:
     """Supervisor LangGraph fuera del event loop, ya convertido a frase hablable."""
     if not user_text:
         return "Sistema listo."
     result = await arun_jarvis(user_text, session_id=f"vapi:{session_id}")
-    logger.info(
-        "🧠 [VAPI SUPERVISOR] call=%s agente=%s herramientas=%s",
-        session_id,
-        result.get("active_agent") or "supervisor",
-        [str(item.get("tool") or "") for item in (result.get("tool_results") or [])],
-    )
+    _log_supervisor(session_id, result)
     return spoken_from_state(result)
 
 
@@ -248,13 +267,13 @@ def _log_outgoing(
     started: float,
     *,
     stream: bool,
-    filler: str = "",
+    bridge: str = "",
 ) -> None:
     logger.info(
         "✅ [VAPI OUTGOING] call=%s stream=%s puente=%r en %.2f s: %r",
         session_id,
         stream,
-        filler,
+        bridge,
         time.monotonic() - started,
         spoken,
     )
@@ -272,21 +291,104 @@ def _filler_delay() -> float:
     return max(float(get_settings().vapi_filler_delay_seconds), 0.0)
 
 
-def pick_filler(session_id: str) -> str:
-    """Frase puente al azar, sin repetir la del turno anterior de esta llamada."""
-    previous = _LAST_FILLER.get(session_id)
-    options = [phrase for phrase in FILLER_PHRASES if phrase != previous]
-    phrase = random.choice(options or list(FILLER_PHRASES))
-    if len(_LAST_FILLER) >= _FILLER_MEMORY:
-        _LAST_FILLER.clear()
-    _LAST_FILLER[session_id] = phrase
+def _idle_speech_gap() -> float:
+    return max(float(get_settings().vapi_idle_speech_seconds), 0.5)
+
+
+def _pick_phrase(pool: tuple[str, ...], key: str) -> str:
+    previous = _LAST_PHRASE.get(key)
+    options = [phrase for phrase in pool if phrase != previous]
+    phrase = random.choice(options or list(pool))
+    if len(_LAST_PHRASE) >= _PHRASE_MEMORY:
+        _LAST_PHRASE.clear()
+    _LAST_PHRASE[key] = phrase
     return phrase
 
 
-def _detach(task: "asyncio.Future[str]") -> None:
+def pick_filler(session_id: str) -> str:
+    """Frase puente al azar, sin repetir la del turno anterior de esta llamada."""
+    return _pick_phrase(FILLER_PHRASES, f"filler:{session_id}")
+
+
+def pick_wait_phrase(session_id: str) -> str:
+    """Frase de espera para cuando el grafo se queda mudo a mitad del turno."""
+    return _pick_phrase(WAIT_PHRASES, f"wait:{session_id}")
+
+
+class TokenGate:
+    """Deja pasar los tokens del ejecutor solo si son prosa pronunciable.
+
+    El ejecutor redacta la respuesta, pero también puede volcar la salida cruda de
+    una herramienta (JSON, HTML, un bloque de código). Se retienen los primeros
+    caracteres para decidirlo; si la cosa pinta a datos se descarta el turno entero
+    y habla la frase final, que sí pasa por `to_spoken`.
+    """
+
+    LOOKAHEAD = 16
+    BLOCKED_STARTS = ("{", "[", "```", "<")
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._open = False
+        self._blocked = False
+        self.spoken = ""
+
+    def feed(self, token: str) -> str:
+        """Texto que se puede hablar ya; cadena vacía mientras aún no se sabe."""
+        if self._blocked or not token:
+            return ""
+        if self._open:
+            self.spoken += token
+            return token
+        self._buffer += token
+        if len(self._buffer.strip()) < self.LOOKAHEAD:
+            return ""
+        text = self._buffer
+        self._buffer = ""
+        if text.lstrip().startswith(self.BLOCKED_STARTS):
+            self._blocked = True
+            return ""
+        self._open = True
+        self.spoken = text
+        return text
+
+
+_WORD_EDGES = re.compile(r"[^0-9a-záéíóúüñ]+")
+
+
+def _speech_words(text: str) -> list[tuple[str, str]]:
+    """Palabras del texto emparejadas con su forma comparable (sin tildes de puntuación)."""
+    pairs = []
+    for raw in strip_markdown(text or "").split():
+        norm = _WORD_EDGES.sub("", raw.lower())
+        if norm:
+            pairs.append((raw, norm))
+    return pairs
+
+
+def _unsaid_tail(streamed: str, final: str) -> str:
+    """Lo que queda por decir de la frase final tras haber hablado token a token.
+
+    El borrador del ejecutor suele ser ya la respuesta, así que repetirla entera
+    sonaría a tartamudeo. Se busca el solapamiento entre el final de lo hablado y
+    el principio de la frase definitiva, y solo se pronuncia el resto.
+    """
+    said = [norm for _raw, norm in _speech_words(streamed)]
+    target = _speech_words(final)
+    if not target:
+        return ""
+    if not said:
+        return final
+    for size in range(min(len(said), len(target)), 0, -1):
+        if said[-size:] == [norm for _raw, norm in target[:size]]:
+            return " ".join(raw for raw, _norm in target[size:])
+    return final
+
+
+def _detach(task: asyncio.Future[str]) -> None:
     """El hilo del Supervisor no se puede cancelar: consume su resultado tardío."""
 
-    def _drain(done: "asyncio.Future[str]") -> None:
+    def _drain(done: asyncio.Future[str]) -> None:
         if done.cancelled():
             return
         error = done.exception()
@@ -296,6 +398,20 @@ def _detach(task: "asyncio.Future[str]") -> None:
             logger.info("Vapi: el Supervisor respondió tarde; se descarta el texto.")
 
     task.add_done_callback(_drain)
+
+
+def _abandon(task: asyncio.Future[None], session_id: str) -> None:
+    """Deja de escuchar al grafo: su hilo seguirá, pero el turno ya se contestó."""
+
+    def _note(done: asyncio.Future[None]) -> None:
+        error = None if done.cancelled() else done.exception()
+        if error is not None:
+            logger.error("Vapi: call=%s el Supervisor falló tras el timeout", session_id, exc_info=error)
+        else:
+            logger.info("Vapi: call=%s se descarta el turno tardío del Supervisor.", session_id)
+
+    task.add_done_callback(_note)
+    task.cancel()
 
 
 async def _spoken_within_budget(user_text: str, session_id: str) -> str:
@@ -320,19 +436,83 @@ async def _spoken_within_budget(user_text: str, session_id: str) -> str:
     return spoken
 
 
+async def _speech_events(
+    user_text: str,
+    session_id: str,
+    queue: asyncio.Queue[dict[str, Any] | None],
+) -> None:
+    """Pasa a la cola lo que el grafo va produciendo; cierra siempre con el centinela.
+
+    Va en su propia tarea para que el generador SSE conserve el reloj: así puede
+    hablar, mandar heartbeats o rendirse sin depender de cuándo conteste LangGraph.
+    """
+    try:
+        if not user_text:
+            queue.put_nowait({"kind": "answer", "text": "Sistema listo."})
+            return
+        async for event in astream_jarvis(user_text, session_id=f"vapi:{session_id}"):
+            kind = str(event.get("kind") or "")
+            if kind == "tool":
+                queue.put_nowait({"kind": "tool", "tool": str(event.get("tool") or "")})
+            elif kind == "token":
+                queue.put_nowait({"kind": "token", "text": str(event.get("text") or "")})
+            elif kind == "state":
+                state = event.get("state") or {}
+                _log_supervisor(session_id, state)
+                queue.put_nowait({"kind": "answer", "text": spoken_from_state(state)})
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception(
+            "💥 [VAPI ERROR] call=%s fallo interno: respondo con voz para no dejar la llamada muda",
+            session_id,
+        )
+        queue.put_nowait({"kind": "error"})
+    finally:
+        queue.put_nowait(None)
+
+
+def _needs_space(previous: str, following: str) -> bool:
+    """¿Hace falta un separador? Sin él el TTS diría "directiva…Listo"."""
+    if not previous or not following:
+        return False
+    return not previous[-1].isspace() and not following[0].isspace()
+
+
 async def _sse_supervisor_reply(
     user_text: str,
     session_id: str,
     completion_id: str,
 ) -> AsyncIterator[str]:
-    """Streaming en dos fases para que la llamada nunca se quede muda.
+    """Stream hablado en tiempo real mientras el grafo trabaja.
 
-    Fase 1: el Supervisor arranca ya y, si no contesta en el primer parpadeo, sale
-    una frase puente como delta de texto. Vapi la pronuncia al instante, lo que
-    regala unos segundos de proceso. Fase 2: mientras LangGraph trabaja solo van
-    keep-alives. Fase 3: la respuesta real, y siempre `finish_reason` +
-    `data: [DONE]`, incluso si algo explota por dentro.
+    Vapi habla en cuanto recibe un delta con texto, así que el turno se cuenta en
+    voz alta a medida que ocurre: frase puente si el grafo no contesta en el primer
+    parpadeo, narración cuando arranca una herramienta lenta, los tokens del
+    ejecutor según los escribe y, al final, la frase de `to_spoken` (solo la parte
+    que no se haya dicho ya). Si nada de eso llega, cada pocos segundos sale una
+    frase de espera: un comentario SSE mantiene el socket, pero el silencio corta
+    la llamada. Siempre se cierra con `finish_reason` y `data: [DONE]`, incluso si
+    algo explota por dentro.
     """
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+    pump = asyncio.ensure_future(_speech_events(user_text, session_id, queue))
+    try:
+        async for chunk in _sse_from_events(queue, session_id, completion_id):
+            yield chunk
+    finally:
+        # Vale tanto para el timeout como para una llamada que se cuelga a medias:
+        # el hilo del grafo seguirá, pero aquí ya no queda nadie escuchando.
+        if not pump.done():
+            _abandon(pump, session_id)
+
+
+async def _sse_from_events(
+    queue: asyncio.Queue[dict[str, Any] | None],
+    session_id: str,
+    completion_id: str,
+) -> AsyncIterator[str]:
+    """Convierte la cola de eventos del grafo en chunks SSE, marcando el ritmo."""
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     started = time.monotonic()
@@ -342,72 +522,137 @@ async def _sse_supervisor_reply(
         delta={"role": "assistant"},
         finish_reason=None,
     )
-    spoken = ERROR_REPLY
-    filler = ""
+
+    def _say(text: str) -> str:
+        return _openai_chunk(
+            completion_id=cid,
+            created=created,
+            delta={"content": text},
+            finish_reason=None,
+        )
+
+    timeout, beat = _budget()
+    filler_delay = _filler_delay()
+    idle_gap = _idle_speech_gap()
+    deadline = started + timeout
+    gate = TokenGate()
+    bridge: list[str] = []
+    tail_char = ""
+    last_speech = started
+    # Arranca a cero, no en `started`: la primera herramienta suele dispararse en el
+    # primer segundo y es justo lo que hay que contar.
+    last_narration = 0.0
+    # Narración en cola: (frase, cuándo toca decirla, herramienta).
+    pending: tuple[str, float, str] | None = None
+    final = ERROR_REPLY
     try:
-        timeout, beat = _budget()
-        task = asyncio.ensure_future(_supervisor_spoken(user_text, session_id))
-        deadline = started + timeout
-        # El primer tramo es corto a propósito: es el margen para decidir si hace
-        # falta la frase puente. A partir de ahí se espera a ritmo de keep-alive.
-        slice_seconds = _filler_delay()
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                _detach(task)
+            now = time.monotonic()
+            if now >= deadline:
                 logger.error(
                     "⚠️ [VAPI TIMEOUT] call=%s el Supervisor superó %.1f s; respondo para no colgar la llamada.",
                     session_id,
                     timeout,
                 )
-                spoken = SLOW_REPLY
+                final = SLOW_REPLY
                 break
+            # Antes de la primera palabra manda el margen de la frase puente;
+            # después, el silencio máximo que una llamada tolera.
+            target = (started + filler_delay) if not tail_char else last_speech + idle_gap
+            if pending is not None:
+                target = min(target, pending[1])
             try:
-                spoken = await asyncio.wait_for(
-                    asyncio.shield(task), timeout=min(slice_seconds, remaining)
+                item = await asyncio.wait_for(
+                    queue.get(), timeout=max(0.02, min(beat, target - now, deadline - now))
                 )
-                break
             except asyncio.TimeoutError:
-                # `TimeoutError` también puede venir del propio Supervisor (HTTP de
-                # una herramienta): si la tarea ya acabó, el resultado manda.
-                if task.done():
-                    spoken = task.result()
-                    break
-                if not filler:
-                    filler = pick_filler(session_id)
+                now = time.monotonic()
+                if pending is not None and now + 0.01 >= pending[1]:
+                    phrase, _due, tool = pending
+                    pending = None
                     logger.info(
-                        "🗣️ [VAPI FILLER] call=%s a los %.2f s: %r",
+                        "🛰️ [VAPI NARRATION] call=%s herramienta=%s: %r",
                         session_id,
-                        time.monotonic() - started,
-                        filler,
+                        tool,
+                        phrase,
                     )
-                    yield _openai_chunk(
-                        completion_id=cid,
-                        created=created,
-                        delta={"content": filler},
-                        finish_reason=None,
-                    )
-                else:
+                    if _needs_space(tail_char, phrase):
+                        yield _say(" ")
+                    yield _say(phrase)
+                    bridge.append(phrase)
+                    tail_char = phrase[-1]
+                    last_speech = now
+                    last_narration = now
+                    continue
+                if now + 0.01 < target:
                     yield KEEPALIVE
-                slice_seconds = beat
+                    continue
+                phrase = pick_wait_phrase(session_id) if tail_char else pick_filler(session_id)
+                logger.info(
+                    "🗣️ [VAPI FILLER] call=%s a los %.2f s: %r",
+                    session_id,
+                    now - started,
+                    phrase,
+                )
+                if _needs_space(tail_char, phrase):
+                    yield _say(" ")
+                yield _say(phrase)
+                bridge.append(phrase)
+                tail_char = phrase[-1]
+                last_speech = now
                 continue
+
+            if item is None:
+                break
+            kind = str(item.get("kind") or "")
+            if kind == "error":
+                final = ERROR_REPLY
+                break
+            if kind == "answer":
+                final = str(item.get("text") or "")
+                break
+            if kind == "tool":
+                tool = str(item.get("tool") or "")
+                phrase = narrate_tool(tool)
+                now = time.monotonic()
+                if (
+                    not phrase
+                    or pending is not None
+                    or phrase in bridge
+                    or now - last_narration < NARRATION_MIN_GAP_SECONDS
+                ):
+                    continue
+                # No se dice aún: si la herramienta contesta rápido, no se dirá.
+                pending = (phrase, now + NARRATION_DELAY_SECONDS, tool)
+                continue
+            if kind == "token":
+                text = gate.feed(str(item.get("text") or ""))
+                if not text:
+                    continue
+                if _needs_space(tail_char, text):
+                    yield _say(" ")
+                yield _say(text)
+                tail_char = text[-1]
+                last_speech = time.monotonic()
     except Exception:
         logger.exception(
             "💥 [VAPI ERROR] call=%s fallo interno: respondo con voz para no dejar la llamada muda",
             session_id,
         )
-        spoken = ERROR_REPLY
-    _log_outgoing(session_id, spoken, started, stream=True, filler=filler)
-    if filler:
-        # Separador entre la frase puente y la respuesta: sin él el TTS las pega.
-        yield _openai_chunk(
-            completion_id=cid,
-            created=created,
-            delta={"content": " "},
-            finish_reason=None,
-        )
+        final = ERROR_REPLY
+
+    # Los tokens del ejecutor ya suelen ser la respuesta: solo se pronuncia lo que
+    # la frase final añade, para no decir dos veces lo mismo.
+    remaining = _unsaid_tail(gate.spoken, final) if gate.spoken else final
+    _log_outgoing(session_id, final, started, stream=True, bridge=" ".join(bridge))
+    if not remaining:
+        yield _openai_chunk(completion_id=cid, created=created, delta={}, finish_reason="stop")
+        yield "data: [DONE]\n\n"
+        return
+    if _needs_space(tail_char, remaining):
+        yield _say(" ")
     async for chunk in _sse_openai_chunks(
-        spoken, completion_id=cid, created=created, include_role=False
+        remaining, completion_id=cid, created=created, include_role=False
     ):
         yield chunk
 
@@ -544,7 +789,7 @@ def vapi_assistant_blueprint(request: Request) -> dict[str, Any]:
         },
         "transcriber": {"provider": "deepgram", "language": "es"},
         "serverUrl": f"{base}/api/jarvis/vapi-events",
-        "firstMessage": "Sistemas en línea. No hay mensajes pendientes, señor.",
+        "firstMessage": "Sistemas en línea. No hay mensajes pendientes, maestro.",
     }
 
 
