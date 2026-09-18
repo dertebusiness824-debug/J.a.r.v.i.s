@@ -214,3 +214,72 @@ def test_supervisor_routes_research_osint(monkeypatch):
     from jarvis.hud_live import is_researching
 
     assert is_researching() is False
+
+
+def test_supervisor_falls_back_to_keyword_routing_when_the_decision_breaks(monkeypatch, caplog):
+    """Sin `RouteDecision` parseable el turno sigue: se enruta por palabras clave y se cierra."""
+    import logging
+
+    class _Structured:
+        def invoke(self, _messages, config=None):
+            raise ValueError("RouteDecision: respuesta vacía")
+
+    class _Model:
+        def with_structured_output(self, _schema, **_kwargs):
+            return _Structured()
+
+    monkeypatch.setattr("jarvis.supervisor.get_supervisor_model", lambda: _Model())
+    caplog.set_level(logging.ERROR, logger="jarvis.supervisor")
+    state = run_jarvis("¿Cuánto es 17 * 24?", session_id="t-route-fallback")
+    assert state.get("active_agent") == "general"
+    assert state.get("task_complete") is True
+    assert "408" in extract_answer(state)
+    assert any("[SUPERVISOR]" in rec.getMessage() and rec.exc_info for rec in caplog.records)
+
+
+def test_a_crashing_specialist_reports_instead_of_breaking_the_turn(monkeypatch, caplog):
+    """El subgrafo del especialista revienta: el Supervisor recibe una frase, no una excepción."""
+    import logging
+
+    from jarvis.prompts import NEURAL_ERROR_REPLY
+
+    class _Exploding:
+        def invoke(self, _payload, _config=None):
+            raise RuntimeError("Tavily devolvió basura")
+
+    monkeypatch.setattr("jarvis.agents.base.core_subgraph", lambda: _Exploding())
+    caplog.set_level(logging.ERROR, logger="jarvis.agents.base")
+    state = run_jarvis("Investiga a Ada Lovelace y recopila información pública", session_id="t-crash")
+
+    assert extract_answer(state) == NEURAL_ERROR_REPLY
+    assert state.get("task_complete") is True
+    assert "RuntimeError: Tavily devolvió basura" in (state.get("error") or "")
+    log = state.get("delegation_log") or []
+    assert log and log[0]["agent"] == "research_agent" and log[0]["ok"] is False
+    assert log[0]["result"] == NEURAL_ERROR_REPLY
+    assert any("[research_agent]" in rec.getMessage() and rec.exc_info for rec in caplog.records)
+    from jarvis.hud_live import is_researching
+
+    assert is_researching() is False, "el HUD no se queda en modo investigación"
+
+
+def test_astream_jarvis_ends_with_a_spoken_state_when_a_specialist_crashes(monkeypatch):
+    """La versión en streaming (la de Vapi) termina en un `state` hablable, no en excepción."""
+    from jarvis.prompts import NEURAL_ERROR_REPLY
+    from jarvis.supervisor import astream_jarvis
+
+    class _Exploding:
+        def invoke(self, _payload, _config=None):
+            raise RuntimeError("subgrafo roto")
+
+    monkeypatch.setattr("jarvis.agents.base.core_subgraph", lambda: _Exploding())
+
+    async def _run():
+        return [
+            event
+            async for event in astream_jarvis("Investiga a Ada Lovelace en LinkedIn", session_id="t-crash-stream")
+        ]
+
+    events = asyncio.run(_run())
+    assert events and events[-1]["kind"] == "state"
+    assert extract_answer(events[-1]["state"]) == NEURAL_ERROR_REPLY

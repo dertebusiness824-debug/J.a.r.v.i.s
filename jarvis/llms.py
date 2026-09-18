@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import Any, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from jarvis.config import get_settings
 from jarvis.state import SpecialistName
@@ -30,6 +30,42 @@ class Plan(BaseModel):
     tasks: list[str] = Field(default_factory=list, description="Tareas pendientes para el ejecutor.")
     is_complete: bool = Field(default=False, description="True si ya hay respuesta final.")
     final_answer: str | None = Field(default=None, description="Respuesta para el usuario si is_complete.")
+
+
+StructuredT = TypeVar("StructuredT", bound=BaseModel)
+
+
+class StructuredOutputError(RuntimeError):
+    """El proveedor no devolvió una instancia válida del esquema pedido."""
+
+
+def invoke_structured(model: Any, schema: type[StructuredT], messages: Any) -> StructuredT:
+    """`with_structured_output(schema).invoke(...)` que siempre devuelve el esquema o falla claro.
+
+    Los nodos del grafo consumen `RouteDecision` y `Plan` como objetos y los reducen
+    a strings y dicts antes de tocar el estado, así que aquí es donde hay que
+    absorber lo que el proveedor pueda devolver en su lugar: un dict (proveedores
+    sin parseo nativo o `include_raw`), `None` (rechazo o JSON truncado) o una
+    excepción de red/validación. Todo eso acaba en `StructuredOutputError`, que
+    el llamador convierte en una degradación controlada en vez de tumbar el turno.
+    """
+    try:
+        raw = model.with_structured_output(schema).invoke(messages)
+    except Exception as exc:
+        raise StructuredOutputError(f"{schema.__name__}: {type(exc).__name__}: {exc}") from exc
+    if isinstance(raw, schema):
+        return raw
+    if isinstance(raw, dict):
+        payload = raw.get("parsed", raw) if "parsed" in raw else raw
+        if isinstance(payload, schema):
+            return payload
+        try:
+            return schema.model_validate(payload)
+        except ValidationError as exc:
+            raise StructuredOutputError(f"{schema.__name__}: {exc}") from exc
+    raise StructuredOutputError(
+        f"{schema.__name__}: el modelo devolvió {type(raw).__name__} en vez del esquema"
+    )
 
 
 _MATH_RE = re.compile(
@@ -592,7 +628,23 @@ class OfflineChatModel(BaseChatModel):
         return AIMessage(content="Sin herramientas aplicables. Tarea marcada para cierre.")
 
 
+def heuristic_route(text: str) -> RouteDecision:
+    """Enrutado por palabras clave, sin LLM: respaldo cuando la decisión estructurada no llega."""
+    return OfflineChatModel(role="planner")._route(text)
+
+
 def get_planner_model() -> Any:
+    """Planificador y Supervisor: solo producen `Plan` y `RouteDecision`, nunca voz.
+
+    `disable_streaming=True` es deliberado. Dentro de `astream_events` LangChain
+    pasa a stream cualquier `invoke`, y con salida estructurada eso obliga al
+    proveedor a reensamblar el JSON por trozos: `langchain-openai` vuelca cada
+    chunk con `model_dump()` sobre un tipo cuyo campo `parsed` no está resuelto
+    (de ahí el `PydanticSerializationUnexpectedValue ... field_name='parsed'`),
+    y un corte a medias deja un `Plan` o `RouteDecision` imposible de parsear.
+    Sin streaming va en una sola petición con parseo nativo, sin aviso ni
+    trozos, y `astream_jarvis` no pierde nada: esos tokens nunca se pronuncian.
+    """
     settings = get_settings()
     if settings.offline:
         return OfflineChatModel(role="planner")
@@ -603,6 +655,7 @@ def get_planner_model() -> Any:
             model=settings.planner_model,
             api_key=settings.anthropic_api_key,
             temperature=0,
+            disable_streaming=True,
         )
     from langchain_openai import ChatOpenAI
 
@@ -610,6 +663,7 @@ def get_planner_model() -> Any:
         model=settings.planner_model,
         api_key=settings.openai_api_key,
         temperature=0,
+        disable_streaming=True,
     )
 
 

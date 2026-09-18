@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage
@@ -9,7 +10,10 @@ from langgraph.types import Command
 
 from jarvis.agent_core import compile_core_graph, extract_answer, initial_state
 from jarvis.config import get_settings
+from jarvis.prompts import NEURAL_ERROR_REPLY
 from jarvis.state import AgentState, DelegationHop
+
+logger = logging.getLogger(__name__)
 
 _CORE_SUBGRAPH = None
 
@@ -24,6 +28,17 @@ def core_subgraph():
 def reset_core_subgraph() -> None:
     global _CORE_SUBGRAPH
     _CORE_SUBGRAPH = None
+
+
+def _failed_report(payload: AgentState, exc: BaseException) -> AgentState:
+    """Estado de cierre de un especialista que reventó: frase hablable y error anotado."""
+    return {
+        **payload,
+        "messages": [*(payload.get("messages") or []), AIMessage(content=NEURAL_ERROR_REPLY)],
+        "final_answer": NEURAL_ERROR_REPLY,
+        "error": f"{type(exc).__name__}: {exc}",
+        "task_complete": True,
+    }
 
 
 def make_specialist_node(name: str, prompt: str):
@@ -46,6 +61,14 @@ def make_specialist_node(name: str, prompt: str):
             mark_researching(ttl=60)
         try:
             output = core_subgraph().invoke(payload, {"recursion_limit": get_settings().jarvis_recursion_limit})
+        except Exception as exc:
+            # Un especialista roto no puede tumbar el turno de voz. `CancelledError`
+            # no es `Exception`: si Vapi cuelga, la cancelación sigue subiendo.
+            logger.exception(
+                "💥 [%s] el subgrafo falló; reporto el error al Supervisor en vez de romper el stream",
+                name,
+            )
+            output = _failed_report(payload, exc)
         finally:
             if name == "research_agent":
                 from jarvis.hud_live import clear_researching

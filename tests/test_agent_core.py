@@ -114,3 +114,107 @@ def test_executor_routes_to_tools_on_tool_calls():
     assert route_after_executor(state) == "tools"
     state["messages"] = [AIMessage(content="listo")]
     assert route_after_executor(state) == "planner"
+
+
+def _broken_structured_model(error: Exception | None = None, returns=None):
+    """Modelo cuyo `with_structured_output().invoke` falla o devuelve algo que no es el esquema."""
+
+    class _Structured:
+        def invoke(self, _messages, config=None):
+            if error is not None:
+                raise error
+            return returns
+
+    class _Model:
+        def with_structured_output(self, _schema, **_kwargs):
+            return _Structured()
+
+    return _Model()
+
+
+def test_the_planner_and_router_never_stream_their_structured_output(monkeypatch):
+    """Dentro de `astream_events` LangChain pasa a stream cualquier invoke; el JSON de
+    `Plan`/`RouteDecision` reensamblado por trozos es lo que dispara el aviso
+    `PydanticSerializationUnexpectedValue(field_name='parsed')` y lo que puede
+    llegar truncado. Planificador y Supervisor lo piden en una sola petición."""
+    from jarvis.config import get_settings
+    from jarvis.llms import get_executor_model, get_planner_model, get_supervisor_model
+
+    monkeypatch.setenv("JARVIS_OFFLINE", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-no-network")
+    monkeypatch.setenv("PLANNER_PROVIDER", "openai")
+    get_settings.cache_clear()
+    try:
+        assert get_planner_model().disable_streaming is True
+        assert get_supervisor_model().disable_streaming is True
+        executor = get_executor_model()
+        assert executor.streaming is True, "el ejecutor sí habla en directo para Vapi"
+        assert executor.disable_streaming is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_invoke_structured_accepts_dicts_and_refuses_anything_else():
+    from jarvis.llms import StructuredOutputError, invoke_structured
+
+    as_dict = _broken_structured_model(returns={"reasoning": "ok", "is_complete": True, "final_answer": "Hola"})
+    plan = invoke_structured(as_dict, Plan, [])
+    assert isinstance(plan, Plan) and plan.final_answer == "Hola"
+
+    wrapped = _broken_structured_model(returns={"raw": object(), "parsed": Plan(reasoning="r"), "parsing_error": None})
+    assert invoke_structured(wrapped, Plan, []).reasoning == "r"
+
+    import pytest
+
+    with pytest.raises(StructuredOutputError):
+        invoke_structured(_broken_structured_model(returns=None), Plan, [])
+    with pytest.raises(StructuredOutputError):
+        invoke_structured(_broken_structured_model(returns={"reasoning": 3.5, "tasks": "no-es-lista"}), Plan, [])
+    with pytest.raises(StructuredOutputError) as info:
+        invoke_structured(_broken_structured_model(error=ValueError("stream cortado")), Plan, [])
+    assert "stream cortado" in str(info.value)
+    assert isinstance(info.value.__cause__, ValueError)
+
+
+def test_a_planner_that_cannot_be_parsed_closes_the_turn_speaking(monkeypatch, caplog):
+    """El fallo de parseo no sube por el grafo: se convierte en una frase y un `error`."""
+    import logging
+
+    from jarvis.agent_core import planner_node
+    from jarvis.prompts import NEURAL_ERROR_REPLY
+
+    monkeypatch.setattr(
+        "jarvis.agent_core.get_planner_model",
+        lambda: _broken_structured_model(error=ValueError("Plan: JSON truncado")),
+    )
+    caplog.set_level(logging.ERROR, logger="jarvis.agent_core")
+    state: AgentState = {"messages": [HumanMessage(content="investiga a alguien")], "active_agent": "research_agent"}
+    update = planner_node(state)
+
+    assert update["task_complete"] is True
+    assert update["final_answer"] == NEURAL_ERROR_REPLY
+    assert update["messages"][0].content == NEURAL_ERROR_REPLY
+    assert "JSON truncado" in (update["error"] or "")
+    records = [rec for rec in caplog.records if "[PLANNER]" in rec.getMessage()]
+    assert records and records[0].exc_info, "la traza tiene que quedar en el log de Render"
+
+
+def test_a_planner_that_cannot_be_parsed_keeps_the_executor_draft(monkeypatch):
+    """Si el ejecutor ya redactó, eso es lo que se dice; el JSON de una tool nunca."""
+    from jarvis.agent_core import planner_node
+    from jarvis.prompts import NEURAL_ERROR_REPLY
+
+    monkeypatch.setattr(
+        "jarvis.agent_core.get_planner_model",
+        lambda: _broken_structured_model(error=RuntimeError("proveedor caído")),
+    )
+    with_draft: AgentState = {
+        "messages": [HumanMessage(content="hola"), AIMessage(content="Ada Lovelace fue matemática, maestro.")],
+    }
+    assert planner_node(with_draft)["final_answer"] == "Ada Lovelace fue matemática, maestro."
+
+    only_tools: AgentState = {
+        "messages": [HumanMessage(content="hola")],
+        "tool_results": [{"tool": "web_search", "output": '{"results": []}', "ok": True}],
+    }
+    assert planner_node(only_tools)["final_answer"] == NEURAL_ERROR_REPLY
