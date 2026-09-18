@@ -47,63 +47,49 @@ def test_health_and_docs():
     assert "Delegación a Code, Comms, Shop o General" not in hud.text
     assert hud.headers.get("cache-control", "").startswith("no-store")
     assert "cdn.tailwindcss.com" in hud.text
+    assert "backdrop-blur-md" in hud.text
     assert "font-mono" in hud.text
     assert "/static/format-error.js" in hud.text
-    assert "/static/hud.js" in hud.text
     assert "terminalMessages" in hud.text
     assert "console.error" in hud.text
-    # Layout móvil: todo cabe en la pantalla, sin scroll accidental; el dock inferior
-    # es lo único que desplaza, y por dentro.
-    assert "flex h-screen w-full items-center justify-center overflow-hidden" in hud.text
-    assert "100dvh" in hud.text
-    assert "bg-gradient-to-b from-slate-900 via-blue-950 to-slate-900" in hud.text
-    assert "max-h-[22vh]" in hud.text
+    assert "max-h-[40vh]" in hud.text
     assert "flex-1" in hud.text
-    assert "env(safe-area-inset-bottom)" in hud.text
-    # Pistas de circuito en dos esquinas: la misma figura, una girada 180°.
-    assert hud.text.count("text-cyan-500/20") == 2
-    assert "left-0 top-0" in hud.text
-    assert "bottom-0 right-0" in hud.text and "rotate-180" in hud.text
-    assert hud.text.count('stroke-dasharray="5 4"') == 2
-    # Núcleo holográfico: texto ancho con brillo y al menos tres anillos concéntricos,
-    # discontinuos y sólidos, en cian y azul.
-    assert 'id="holoCore"' in hud.text
-    assert 'data-voice="idle"' in hud.text and 'data-researching="0"' in hud.text
-    assert "h-72 w-72 md:h-96 md:w-96" in hud.text
-    assert 'id="coreLabel"' in hud.text
-    assert "font-hud text-xl font-bold tracking-widest text-white drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" in hud.text
-    assert "border-2 border-dashed border-cyan-500/50" in hud.text
-    assert "border border-dashed border-blue-500/30" in hud.text
-    assert hud.text.count("rounded-full border border-cyan-500/50") >= 1
-    assert hud.text.count("rounded-full border border-blue-500/30") >= 1
-    assert hud.text.count("rounded-full border") >= 4
-    assert 'data-hud="globe"' in hud.text and 'data-hud="net"' in hud.text
-    assert 'data-hud="ring-outer"' in hud.text and 'data-hud="ring-mid"' in hud.text
-    assert 'id="corePing"' in hud.text
+    assert "w-72" in hud.text
+    assert "h-72" in hud.text
+    assert "md:h-96 md:w-96" in hud.text
+    assert "tracking-[0.4em]" in hud.text
+    assert "font-black" in hud.text
+    assert "border-2 border-emerald-500" in hud.text
+    assert "transition-all duration-300 ease-out" in hud.text
+    assert "hover:scale-105" in hud.text
     assert "active:scale-95" in hud.text
+    assert "shadow-[0_0_20px_rgba(16,185,129,0.3)]" in hud.text
+    assert "hover:shadow-[0_0_50px_rgba(16,185,129,0.7)]" in hud.text
+    assert 'id="corePing"' in hud.text
+    assert "bg-emerald-500/20 animate-ping" in hud.text
+    assert "border-emerald-500/30" in hud.text
+    assert "text-emerald-400" in hud.text
+    assert "from-emerald-500 to-green-600" in hud.text
     assert "orange" not in hud.text
-    assert "emerald" not in hud.text
-    # Los anillos giran en sentidos opuestos, y solo cuando Jarvis habla o escucha.
-    assert "@keyframes spin" in hud.text
-    assert "animate-[spin_14s_linear_infinite]" in hud.text
-    assert "animate-[spin_20s_linear_infinite] [animation-direction:reverse]" in hud.text
-    assert ".ring-spin { animation-play-state: paused; }" in hud.text
-    assert '[data-voice="speaking"] .ring-spin { animation-play-state: running; }' in hud.text
-    assert "prefers-reduced-motion" in hud.text
-    # Modo investigación: los anillos se apagan y entra la red neuronal en su sitio.
-    assert '[data-researching="1"] [data-hud="rings"] { opacity: 0; transform: scale(0.9); }' in hud.text
-    assert '[data-researching="0"] [data-hud="net"] { opacity: 0;' in hud.text
+    assert "animate-[spin_10s_linear_infinite]" in hud.text
+    assert "scanlines" in hud.text
+    assert "text-3xl" in hud.text
+    assert "border-t border-l" in hud.text
     assert "isResearching" in hud.text
-    assert "setResearching" in hud.text
-    assert "hud.setResearching(isResearching())" in hud.text
     assert "ACCEDIENDO A LA RED GLOBAL" in hud.text
-    assert 'id="researchBanner"' in hud.text
-    # Voz: los estados y el volumen de Vapi llegan al núcleo.
-    assert "createHoloCore(document.getElementById(\"holoCore\"))" in hud.text
-    assert "hud.setVoice(callStatus)" in hud.text
-    assert 'vapi.on("volume-level"' in hud.text
-    assert "hud.setVolume(level)" in hud.text
+    assert 'id="researchOverlay"' in hud.text
+    assert "setResearching" in hud.text
+    assert "animate-pulse" in hud.text
+    assert 'id="netLayer"' in hud.text
+    assert "absolute inset-0 -z-10" in hud.text
+    assert "object-cover" in hud.text
+    assert "opacity-10" in hud.text
+    assert "opacity-60" in hud.text
+    assert "transition-opacity duration-1000 ease-in-out" in hud.text
+    assert "animate-breath" in hud.text
     assert "speech-start" in hud.text
+    assert 'id="netVeil"' in hud.text
+    assert "bg-black/40" in hud.text
     assert "isolate" in hud.text
     assert "metadataSendMode" in hud.text
     assert "@vapi-ai/web@2.6.3" in hud.text
@@ -116,45 +102,34 @@ def test_health_and_docs():
     assert "Requiere interacción manual para desbloquear canales de audio" in hud.text
     assert "startVapiCall" in hud.text
     assert "auto: true" in hud.text
+    # Núcleo tipo reactor/radar: degradado verde, anillos concéntricos y barrido.
+    assert "radial-gradient(circle at 50% 42%" in hud.text
+    assert "rgba(6, 78, 59, 0.44)" in hud.text
+    assert "conic-gradient" in hud.text
+    assert "radar-sweep" in hud.text
+    assert "animate-[spin_6s_linear_infinite]" in hud.text
+    # Los anillos giran con `animate-[spin_...]`: sin estos keyframes propios se
+    # quedarían quietos si el CDN de Tailwind deja de emitirlos.
+    assert "@keyframes spin" in hud.text
+    assert "bg-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.9)]" in hud.text
+    assert hud.text.count("border-green-500/20") >= 2
+    assert "border-2 border-dashed border-green-500/40 animate-[spin_10s_linear_infinite]" in hud.text
     # El texto del núcleo va en su propio span (los anillos no se pisan al cambiar de estado).
+    assert 'id="coreLabel"' in hud.text
+    assert "font-mono text-[11px] font-black tracking-[0.4em] text-green-400" in hud.text
+    assert "drop-shadow-[0_0_14px_rgba(34,197,94,0.9)]" in hud.text
     assert "talkBtn.textContent" not in hud.text
     # Prompt de consola con cursor parpadeante justo detrás del log.
     assert 'id="terminalCaret"' in hud.text
-    assert "animate-caret inline-block h-4 w-2 bg-cyan-400" in hud.text
+    assert "animate-caret inline-block h-4 w-2 bg-green-500" in hud.text
     assert "@keyframes caret" in hud.text
     assert "supervisor@jarvis:~$" in hud.text
     assert 'id="terminalText"' in hud.text
     assert "terminalText.textContent = terminalMessages.join" in hud.text
     assert "terminal.textContent" not in hud.text
     # Contadores de la bandeja en cajas de panel de mandos.
-    assert hud.text.count("rounded-sm border border-cyan-500/30 bg-cyan-900/20") == 3
-    assert hud.text.count("font-mono text-base font-black text-cyan-300") == 3
-
-
-def test_holo_core_module_is_served_and_self_contained():
-    client = TestClient(create_app())
-    res = client.get("/static/hud.js")
-    assert res.status_code == 200
-    js = res.text
-    assert "createHoloCore" in js
-    # Una sola API hacia la página: voz, volumen e investigación.
-    for method in ("setVoice", "setVolume", "setResearching"):
-        assert f"function {method}(" in js
-    # El módulo no habla con el backend ni con Vapi: recibe estado y pinta.
-    assert "vapi.on(" not in js and "import(" not in js
-    assert "fetch(" not in js
-    # Rendimiento en móvil: un rAF, DPR limitado, sin shadowBlur, parada con la pestaña oculta.
-    assert "requestAnimationFrame" in js
-    assert "DPR_CAP = 2" in js
-    assert "shadowBlur =" not in js
-    assert "visibilitychange" in js
-    assert "prefers-reduced-motion" in js
-    # El volumen modula escala y opacidad del anillo exterior, y el brillo del texto.
-    assert "ringOuter.style.transform" in js
-    assert "ringOuter.style.opacity" in js
-    assert "label.style.textShadow" in js
-    # Sin datos de volumen (voz del navegador) el núcleo sigue latiendo al hablar.
-    assert "state.voice === \"speaking\"" in js
+    assert hud.text.count("rounded-sm border border-green-500/30 bg-green-900/20") == 3
+    assert hud.text.count("font-mono text-3xl font-black text-green-400") == 3
 
 
 def test_directive_and_inbox_status():
