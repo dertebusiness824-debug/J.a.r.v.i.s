@@ -18,7 +18,7 @@
   const DPR_CAP = 2;
   const GLOBE_POINTS = 220;
   const GLOBE_NEIGHBOURS = 2;
-  const NET_NODES = 34;
+  const NET_NODES = 40;
   const NET_NEIGHBOURS = 3;
   // Lo que dura el cruce entre anillos y red (debe coincidir con duration-700).
   const FADE_MS = 750;
@@ -87,7 +87,8 @@
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2;
     const cy = h / 2;
-    const radius = Math.min(w, h) * (0.355 + level * 0.02);
+    // La esfera desborda los anillos medios y roza el exterior, como en la referencia.
+    const radius = Math.min(w, h) * (0.44 + level * 0.02);
     const tilt = 0.38;
     const ca = Math.cos(angle);
     const sa = Math.sin(angle);
@@ -289,9 +290,9 @@
       if (Math.abs(value - lastApplied) < 0.01) return;
       lastApplied = value;
       const isActive = active();
-      ringOuter.style.transform = `scale(${(1 + value * 0.16).toFixed(3)})`;
-      ringOuter.style.opacity = isActive ? (0.45 + value * 0.55).toFixed(2) : "";
-      ringMid.style.transform = `scale(${(1 + value * 0.07).toFixed(3)})`;
+      ringOuter.style.transform = `scale(${(1 + value * 0.22).toFixed(3)})`;
+      ringOuter.style.opacity = isActive ? (0.4 + value * 0.6).toFixed(2) : "";
+      ringMid.style.transform = `scale(${(1 + value * 0.1).toFixed(3)})`;
       label.style.textShadow =
         `0 0 ${Math.round(10 + value * 22)}px rgba(6, 182, 212, ${(0.8 + value * 0.2).toFixed(2)}), ` +
         `0 0 ${Math.round(2 + value * 6)}px rgba(255, 255, 255, 0.55)`;

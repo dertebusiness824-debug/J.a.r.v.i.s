@@ -32,12 +32,14 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+      /* Solo mueve: si animara opacity pisaría la que pone el JS para ocultar la
+         bandera en reposo, porque las animaciones ganan a los estilos inline. */
       @keyframes glitch {
-        0%, 100% { transform: translate(0); opacity: 1; }
-        20% { transform: translate(-2px, 1px); opacity: 0.8; }
-        40% { transform: translate(2px, -1px); opacity: 1; }
-        60% { transform: translate(-1px, -2px); opacity: 0.88; }
-        80% { transform: translate(1px, 2px); opacity: 1; }
+        0%, 100% { transform: translate(0); }
+        20% { transform: translate(-2px, 1px); }
+        40% { transform: translate(2px, -1px); }
+        60% { transform: translate(-1px, -2px); }
+        80% { transform: translate(1px, 2px); }
       }
       /* `animate-pulse` solo baja al 50 % de opacidad en 2 s: en un bloque de 8 px
          eso no se lee como un cursor de consola, así que enciende y apaga. */
