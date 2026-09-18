@@ -280,7 +280,7 @@ def test_vapi_narrates_the_tool_it_is_waiting_for(monkeypatch):
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
     monkeypatch.setattr(
         "jarvis.api.vapi_routes.astream_jarvis",
-        _slow_stream(0.6, events=[{"kind": "tool", "tool": "web_search"}]),
+        _slow_stream(1.2, events=[{"kind": "tool", "tool": "web_search"}]),
     )
     from jarvis.config import get_settings
 
@@ -291,34 +291,41 @@ def test_vapi_narrates_the_tool_it_is_waiting_for(monkeypatch):
     narration_at = next(at for at, text in _said(events) if "red global" in text)
     answer_at = next(at for at, text in _said(events) if "Listo tras" in text)
     assert narration_at < answer_at, "la narración va mientras la herramienta trabaja"
-    assert _spoken(events).endswith("Listo tras 0.6 segundos.")
+    assert _spoken(events).endswith("Listo tras 1.2 segundos.")
     get_settings.cache_clear()
+
+
+def test_vapi_does_not_narrate_a_tool_that_answers_at_once(monkeypatch):
+    """Anunciar una herramienta instantánea solo alarga la respuesta."""
+    monkeypatch.setattr(
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _slow_stream(0.05, events=[{"kind": "tool", "tool": "shopify_inventory_summary"}]),
+    )
+    spoken = _spoken(_collect_sse(session="call-fast-tool"))
+    assert spoken == "Listo tras 0.05 segundos."
+    assert "Revisando" not in spoken
 
 
 def test_vapi_does_not_narrate_the_same_tool_twice(monkeypatch):
     """El research_agent repite web_search: decirlo cada vez suena a disco rayado."""
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
-    monkeypatch.setattr(
-        "jarvis.api.vapi_routes.astream_jarvis",
-        _slow_stream(
-            0.3,
-            events=[
-                {"kind": "tool", "tool": "web_search"},
-                {"kind": "tool", "tool": "web_search"},
-                {"kind": "tool", "tool": "advanced_dork_search"},
-                {"kind": "tool", "tool": "calculate_expression"},
-            ],
-        ),
-    )
+
+    async def _stream(text, session_id=None):
+        for _round in range(3):
+            yield {"kind": "tool", "tool": "web_search"}
+            yield {"kind": "tool", "tool": "calculate_expression"}
+            await asyncio.to_thread(time.sleep, 0.8)
+        yield {"kind": "state", "state": {"final_answer": "Información pública recopilada."}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
     spoken = _spoken(_collect_sse(session="call-repeat"))
     assert spoken.count("Accediendo a la red global") == 1
-    # La calculadora es instantánea y el segundo dork llega pegado al primero:
-    # ninguno de los dos merece una frase.
-    assert "operadores de búsqueda" not in spoken
+    # La calculadora es instantánea: narrarla solo añadiría ruido.
     assert "calculate_expression" not in spoken
+    assert spoken.endswith("Información pública recopilada.")
     get_settings.cache_clear()
 
 
@@ -390,6 +397,33 @@ def test_vapi_never_speaks_raw_tool_output(monkeypatch):
     spoken = _spoken(_collect_sse(session="call-json"))
     assert spoken == "Inventario revisado."
     assert "{" not in spoken
+
+
+def test_vapi_drops_the_graph_when_the_call_hangs_up(monkeypatch):
+    """Si Vapi cuelga a mitad del stream, el turno se suelta en vez de quedar colgado."""
+    marks: list[str] = []
+
+    async def _stream(text, session_id=None):
+        try:
+            await asyncio.sleep(5)
+            yield {"kind": "state", "state": {"final_answer": "tarde"}}
+        except asyncio.CancelledError:
+            marks.append("cancelado")
+            raise
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+
+    async def scenario() -> None:
+        stream = _sse_supervisor_reply("hola", "call-hangup", "chatcmpl-test")
+        assert '"role": "assistant"' in await stream.__anext__()
+        # Un segundo chunk (la frase puente) obliga al turno a estar ya en marcha.
+        assert _sse_content(await stream.__anext__()) in FILLER_PHRASES
+        await stream.aclose()
+        await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+    assert marks == ["cancelado"]
 
 
 def test_unsaid_tail_only_returns_what_is_missing():

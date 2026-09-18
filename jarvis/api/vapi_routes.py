@@ -53,6 +53,9 @@ WAIT_PHRASES = (
 # Dos narraciones seguidas suenan a atropello: el research_agent encadena varias
 # herramientas en menos de un segundo.
 NARRATION_MIN_GAP_SECONDS = 2.0
+# La narración espera un poco antes de salir: una herramienta que termina en este
+# tiempo no necesita presentación, y anunciarla alargaría la respuesta sin motivo.
+NARRATION_DELAY_SECONDS = 0.5
 # Los payloads de Vapi traen la conversación entera: en el log solo cabe un adelanto.
 LOG_PREVIEW_CHARS = 800
 # Última frase dicha por llamada y pozo: repetirla seguida suena a bucle.
@@ -492,6 +495,24 @@ async def _sse_supervisor_reply(
     la llamada. Siempre se cierra con `finish_reason` y `data: [DONE]`, incluso si
     algo explota por dentro.
     """
+    queue: "asyncio.Queue[dict[str, Any] | None]" = asyncio.Queue()
+    pump = asyncio.ensure_future(_speech_events(user_text, session_id, queue))
+    try:
+        async for chunk in _sse_from_events(queue, session_id, completion_id):
+            yield chunk
+    finally:
+        # Vale tanto para el timeout como para una llamada que se cuelga a medias:
+        # el hilo del grafo seguirá, pero aquí ya no queda nadie escuchando.
+        if not pump.done():
+            _abandon(pump, session_id)
+
+
+async def _sse_from_events(
+    queue: "asyncio.Queue[dict[str, Any] | None]",
+    session_id: str,
+    completion_id: str,
+) -> AsyncIterator[str]:
+    """Convierte la cola de eventos del grafo en chunks SSE, marcando el ritmo."""
     cid = completion_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     started = time.monotonic()
@@ -514,8 +535,6 @@ async def _sse_supervisor_reply(
     filler_delay = _filler_delay()
     idle_gap = _idle_speech_gap()
     deadline = started + timeout
-    queue: "asyncio.Queue[dict[str, Any] | None]" = asyncio.Queue()
-    pump = asyncio.ensure_future(_speech_events(user_text, session_id, queue))
     gate = TokenGate()
     bridge: list[str] = []
     tail_char = ""
@@ -523,12 +542,13 @@ async def _sse_supervisor_reply(
     # Arranca a cero, no en `started`: la primera herramienta suele dispararse en el
     # primer segundo y es justo lo que hay que contar.
     last_narration = 0.0
+    # Narración en cola: (frase, cuándo toca decirla, herramienta).
+    pending: tuple[str, float, str] | None = None
     final = ERROR_REPLY
     try:
         while True:
             now = time.monotonic()
             if now >= deadline:
-                _abandon(pump, session_id)
                 logger.error(
                     "⚠️ [VAPI TIMEOUT] call=%s el Supervisor superó %.1f s; respondo para no colgar la llamada.",
                     session_id,
@@ -539,12 +559,31 @@ async def _sse_supervisor_reply(
             # Antes de la primera palabra manda el margen de la frase puente;
             # después, el silencio máximo que una llamada tolera.
             target = (started + filler_delay) if not tail_char else last_speech + idle_gap
+            if pending is not None:
+                target = min(target, pending[1])
             try:
                 item = await asyncio.wait_for(
                     queue.get(), timeout=max(0.02, min(beat, target - now, deadline - now))
                 )
             except asyncio.TimeoutError:
                 now = time.monotonic()
+                if pending is not None and now + 0.01 >= pending[1]:
+                    phrase, _due, tool = pending
+                    pending = None
+                    logger.info(
+                        "🛰️ [VAPI NARRATION] call=%s herramienta=%s: %r",
+                        session_id,
+                        tool,
+                        phrase,
+                    )
+                    if _needs_space(tail_char, phrase):
+                        yield _say(" ")
+                    yield _say(phrase)
+                    bridge.append(phrase)
+                    tail_char = phrase[-1]
+                    last_speech = now
+                    last_narration = now
+                    continue
                 if now + 0.01 < target:
                     yield KEEPALIVE
                     continue
@@ -573,27 +612,18 @@ async def _sse_supervisor_reply(
                 final = str(item.get("text") or "")
                 break
             if kind == "tool":
-                phrase = narrate_tool(str(item.get("tool") or ""))
+                tool = str(item.get("tool") or "")
+                phrase = narrate_tool(tool)
                 now = time.monotonic()
                 if (
                     not phrase
+                    or pending is not None
                     or phrase in bridge
                     or now - last_narration < NARRATION_MIN_GAP_SECONDS
                 ):
                     continue
-                logger.info(
-                    "🛰️ [VAPI NARRATION] call=%s herramienta=%s: %r",
-                    session_id,
-                    item.get("tool"),
-                    phrase,
-                )
-                if _needs_space(tail_char, phrase):
-                    yield _say(" ")
-                yield _say(phrase)
-                bridge.append(phrase)
-                tail_char = phrase[-1]
-                last_speech = now
-                last_narration = now
+                # No se dice aún: si la herramienta contesta rápido, no se dirá.
+                pending = (phrase, now + NARRATION_DELAY_SECONDS, tool)
                 continue
             if kind == "token":
                 text = gate.feed(str(item.get("text") or ""))
