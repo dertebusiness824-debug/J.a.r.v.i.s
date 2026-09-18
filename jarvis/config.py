@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     vapi_webhook_secret: str | None = None
     vapi_response_timeout_seconds: float = 30.0
     vapi_keepalive_seconds: float = 5.0
+    # Margen antes de soltar la frase puente: si el Supervisor contesta dentro de
+    # este tiempo no hay silencio que tapar y la llamada va directa a la respuesta.
+    vapi_filler_delay_seconds: float = 0.15
 
     cartesia_api_key: str | None = None
     cartesia_voice_id: str | None = None
