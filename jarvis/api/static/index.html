@@ -66,8 +66,11 @@
       }
       /* Los anillos discontinuos solo giran cuando Jarvis habla o escucha; en
          reposo se quedan quietos y la vida la pone la esfera. Sentidos opuestos
-         entre el exterior y el medio. */
-      .ring-spin { animation-play-state: paused; }
+         entre el exterior y el medio. El selector lleva el atributo porque el
+         `animate-[spin_...]` de Tailwind es un atajo `animation:` que también fija
+         play-state, y su hoja se inyecta después de esta: a igual especificidad
+         ganaría él y los anillos girarían siempre. */
+      [data-hud="rings"] .ring-spin { animation-play-state: paused; }
       [data-voice="connecting"] .ring-spin,
       [data-voice="listening"] .ring-spin,
       [data-voice="speaking"] .ring-spin { animation-play-state: running; }

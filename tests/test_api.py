@@ -87,7 +87,9 @@ def test_health_and_docs():
     assert "@keyframes spin" in hud.text
     assert "animate-[spin_14s_linear_infinite]" in hud.text
     assert "animate-[spin_20s_linear_infinite] [animation-direction:reverse]" in hud.text
-    assert ".ring-spin { animation-play-state: paused; }" in hud.text
+    # Con el atributo: el atajo `animation:` de Tailwind fija play-state y se inyecta
+    # después, así que a igual especificidad los anillos girarían siempre.
+    assert '[data-hud="rings"] .ring-spin { animation-play-state: paused; }' in hud.text
     assert '[data-voice="speaking"] .ring-spin { animation-play-state: running; }' in hud.text
     assert "prefers-reduced-motion" in hud.text
     # Modo investigación: los anillos se apagan y entra la red neuronal en su sitio.
