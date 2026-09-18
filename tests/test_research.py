@@ -1,9 +1,11 @@
 import json
+from typing import ClassVar
 
 import pytest
 import requests
 
 from jarvis.agents.research_agent import (
+    _tavily_search,
     advanced_dork_search,
     extract_social_profiles,
     find_contact_info,
@@ -21,6 +23,41 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+
+class _FakeTavily:
+    """Cliente de Tavily de mentira: apunta los parámetros y devuelve lo pactado."""
+
+    calls: ClassVar[list[dict]] = []
+    response: ClassVar[object] = {"results": []}
+
+    def __init__(self, api_key=None, **_kwargs):
+        self.api_key = api_key
+
+    def search(self, **params):
+        _FakeTavily.calls.append({"api_key": self.api_key, **params})
+        if isinstance(_FakeTavily.response, Exception):
+            raise _FakeTavily.response
+        return _FakeTavily.response
+
+
+@pytest.fixture
+def fake_tavily(monkeypatch):
+    """Instala el cliente falso y una clave, para no salir a la red de verdad."""
+    _FakeTavily.calls = []
+    _FakeTavily.response = {
+        "results": [
+            {
+                "title": "Ada Lovelace",
+                "content": "Primera programadora.",
+                "url": "https://example.com/ada",
+                "score": 0.93,
+            }
+        ]
+    }
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.setattr("tavily.TavilyClient", _FakeTavily)
+    return _FakeTavily
 
 
 def _hunter_payload(count=6):
@@ -65,19 +102,90 @@ def test_extract_social_profiles_formats_dorks():
     assert any("x.com" in q for q in data["queries"])
 
 
-def test_advanced_dork_search_prefixes_site(monkeypatch):
+def test_advanced_dork_search_passes_the_site_as_a_filter(monkeypatch):
     captured = {}
 
-    def _fake_search(query):
+    def _fake_search(query, **options):
         captured["query"] = query
+        captured["options"] = options
         return {"provider": "duckduckgo", "query": query, "results": []}
 
     monkeypatch.setattr("jarvis.agents.research_agent._public_search", _fake_search)
     data = json.loads(
         advanced_dork_search.invoke({"query": "Ada Lovelace", "site": "linkedin.com/in"})
     )
-    assert captured["query"] == "site:linkedin.com/in Ada Lovelace"
+    # La consulta viaja limpia y el dominio va aparte: el `site:` dentro del texto no
+    # lo entiende Tavily.
+    assert captured["query"] == "Ada Lovelace"
+    assert captured["options"]["site"] == "linkedin.com/in"
+    # El dork sigue en la respuesta como traza de lo que se buscó.
     assert data["dork"] == "site:linkedin.com/in Ada Lovelace"
+
+
+def test_tavily_search_sends_the_documented_parameters(fake_tavily):
+    results = _tavily_search("Ada Lovelace", site="site:linkedin.com/in", time_range="month")
+
+    call = fake_tavily.calls[0]
+    assert call["api_key"] == "tvly-test"
+    assert call["query"] == "Ada Lovelace"
+    assert call["search_depth"] == "advanced"
+    assert call["include_domains"] == ["linkedin.com/in"]
+    assert call["time_range"] == "month"
+    assert results == [
+        {
+            "title": "Ada Lovelace",
+            "snippet": "Primera programadora.",
+            "url": "https://example.com/ada",
+            "score": 0.93,
+        }
+    ]
+
+
+def test_tavily_search_ignores_controls_it_does_not_support(fake_tavily):
+    _tavily_search("Ada Lovelace", topic="astrología", time_range="decade")
+
+    call = fake_tavily.calls[0]
+    assert "topic" not in call
+    assert "time_range" not in call
+
+
+def test_tavily_search_trims_queries_the_api_would_reject(fake_tavily):
+    _tavily_search("Ada " * 300)
+
+    assert len(fake_tavily.calls[0]["query"]) == 400
+
+
+def test_tavily_search_falls_back_and_leaves_a_trace(fake_tavily, caplog):
+    fake_tavily.response = RuntimeError("401 unauthorized")
+
+    with caplog.at_level("WARNING"):
+        assert _tavily_search("Ada Lovelace") is None
+
+    # Una clave caducada tiene que verse en los logs, no pasar por "sin resultados".
+    assert "401 unauthorized" in caplog.text
+
+
+def test_tavily_search_needs_a_key(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    assert _tavily_search("Ada Lovelace") is None
+
+
+def test_web_search_uses_tavily_when_there_is_a_key(fake_tavily):
+    data = json.loads(web_search.invoke({"query": "Ada Lovelace", "time_range": "week"}))
+
+    assert data["provider"] == "tavily"
+    assert data["time_range"] == "week"
+    assert data["results"][0]["url"] == "https://example.com/ada"
+    assert fake_tavily.calls[0]["time_range"] == "week"
+
+
+def test_web_search_does_not_send_empty_controls(fake_tavily):
+    web_search.invoke({"query": "Ada Lovelace"})
+
+    call = fake_tavily.calls[0]
+    assert "topic" not in call
+    assert "time_range" not in call
+    assert "include_domains" not in call
 
 
 def test_find_public_emails_requires_api_key():
