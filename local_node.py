@@ -2,10 +2,14 @@
 """Nodo local de J.A.R.V.I.S.: ejecuta en tu ordenador lo que el agente emite desde Render.
 
 Patrón Command Emission. El backend no puede tocar tu disco, así que apila comandos
-en `GET /api/commands/pending`; este script los sondea cada 2 s, crea las carpetas y
-archivos bajo una raíz segura y, si el comando trae `"open_with": "cursor"`, abre
-el proyecto en Cursor (`cursor <ruta>`). Después confirma el resultado con
-`POST /api/commands/{id}/ack`.
+en `GET /api/commands/pending`; este script los sondea cada 2 s y los ejecuta:
+
+    CREATE_PROJECT  crea carpetas/archivos bajo --root y abre Cursor
+    OPEN_URL        abre http(s) en el navegador por defecto (`webbrowser`)
+    RUN_TERMINAL    lanza el comando en segundo plano (`subprocess.Popen`)
+    APP_CONTROL     abre o cierra una app (macOS `open -a`, Windows `start`/`taskkill`)
+
+Después confirma el resultado con `POST /api/commands/{id}/ack`.
 
 Uso:
 
@@ -15,7 +19,9 @@ Uso:
     python local_node.py --once                # una sola pasada (para probar)
 
 Solo usa la biblioteca estándar: no hay nada que instalar. Requiere Python 3.9+.
-Seguridad: todo se escribe dentro de --root; rutas absolutas o con `..` se rechazan.
+Seguridad: CREATE_PROJECT solo escribe dentro de --root; OPEN_URL solo http(s);
+RUN_TERMINAL pide Y/N en esta terminal si el comando borra archivos o reinicia
+(y se niega si no hay TTY); los destructivos del sistema entero se rechazan.
 """
 
 from __future__ import annotations
@@ -24,20 +30,53 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 DEFAULT_URL = os.environ.get("JARVIS_URL", "https://j-a-r-v-i-s-yghr.onrender.com")
 DEFAULT_ROOT = os.environ.get("JARVIS_PROJECTS_ROOT", str(Path.home() / "JarvisProjects"))
 DEFAULT_INTERVAL = 2.0
 TOKEN_HEADER = "X-Jarvis-Node-Token"
 IDE_COMMANDS = {"cursor": ["cursor"], "code": ["code"]}
+_CONFIRM_RE = re.compile(
+    r"(?:^|[;&|]|&&|\|\|)\s*(rm|del|erase|rmdir|rd|remove-item|reboot|shutdown|halt)\b",
+    re.IGNORECASE,
+)
+_CATASTROPHIC = (
+    "rm -rf /",
+    "rm -rf /*",
+    "mkfs",
+    ":(){",
+    "fork bomb",
+    "dd if=",
+    "chmod 777 /",
+    "> /dev/sd",
+    "format c:",
+    "format c ",
+    "diskpart",
+)
+# Nombres conocidos → binario / bundle / imagen de Windows.
+APP_ALIASES = {
+    "spotify": {"darwin": "Spotify", "windows": "Spotify.exe", "linux": "spotify"},
+    "whatsapp": {"darwin": "WhatsApp", "windows": "WhatsApp.exe", "linux": "whatsapp-desktop"},
+    "terminal": {"darwin": "Terminal", "windows": "wt.exe", "linux": "x-terminal-emulator"},
+    "chrome": {"darwin": "Google Chrome", "windows": "chrome.exe", "linux": "google-chrome"},
+    "firefox": {"darwin": "Firefox", "windows": "firefox.exe", "linux": "firefox"},
+    "safari": {"darwin": "Safari", "windows": "", "linux": ""},
+    "notes": {"darwin": "Notes", "windows": "notepad.exe", "linux": "gedit"},
+    "calculator": {"darwin": "Calculator", "windows": "calc.exe", "linux": "gnome-calculator"},
+    "slack": {"darwin": "Slack", "windows": "slack.exe", "linux": "slack"},
+    "discord": {"darwin": "Discord", "windows": "Discord.exe", "linux": "discord"},
+}
 
 
 class CommandError(Exception):
@@ -96,7 +135,124 @@ def ide_command(open_with: str) -> list[str] | None:
     return [found] if found else None
 
 
-def create_project(command: dict[str, Any], root: Path, *, opener: Callable[..., Any] = subprocess.run) -> str:
+def is_catastrophic(command: str) -> bool:
+    lowered = (command or "").lower()
+    return any(token in lowered for token in _CATASTROPHIC)
+
+
+def needs_confirmation(command: str) -> bool:
+    if is_catastrophic(command):
+        return False
+    return bool(_CONFIRM_RE.search(command or ""))
+
+
+def confirm_dangerous(command: str, *, ask: Callable[[str], str] | None = None) -> bool:
+    """Alerta en la terminal física y pide Y/N. Sin TTY, se niega (no se cuelga el sondeo)."""
+    prompt = (
+        f"\n⚠ COMANDO PELIGROSO (borra archivos o reinicia el sistema):\n  {command}\n"
+        "¿Ejecutar de todas formas? [Y/N] "
+    )
+    if ask is not None:
+        reply = ask(prompt)
+    elif sys.stdin.isatty():
+        log(prompt.rstrip())
+        try:
+            reply = input()
+        except EOFError:
+            return False
+    else:
+        log("✖ Comando peligroso y no hay terminal física para confirmar. Lo rechazo.")
+        return False
+    return str(reply or "").strip().lower() in {"y", "yes", "s", "si", "sí"}
+
+
+def family(system: str | None = None) -> str:
+    name = (system or platform.system()).lower()
+    if name in {"darwin", "mac", "macos"}:
+        return "darwin"
+    if name.startswith("win"):
+        return "windows"
+    return "linux"
+
+
+def resolve_app(name: str, system: str | None = None) -> str:
+    key = re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+    mapped = APP_ALIASES.get(key, {}).get(family(system))
+    return mapped or name.strip()
+
+
+def app_argv(name: str, action: str, *, system: str | None = None) -> list[str]:
+    """Argumentos para abrir o cerrar una app, sin pasar por el shell."""
+    kind = family(system)
+    target = resolve_app(name, system)
+    if not target:
+        raise CommandError(f"no sé cómo {action} {name!r} en {kind}")
+    if action == "close":
+        if kind == "darwin":
+            return ["osascript", "-e", f'quit app "{target}"']
+        if kind == "windows":
+            image = target if target.lower().endswith(".exe") else f"{target}.exe"
+            return ["taskkill", "/IM", image]
+        return ["pkill", "-x", target]
+    if kind == "darwin":
+        return ["open", "-a", target]
+    if kind == "windows":
+        return ["cmd", "/c", "start", "", target]
+    found = shutil.which(target)
+    return [found or target]
+
+
+def open_url(command: dict[str, Any], root: Path, **hooks: Any) -> str:  # noqa: ARG001
+    url = str(command.get("url") or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise CommandError(f"url debe ser http(s): {url!r}")
+    browser = hooks.get("browser") or webbrowser.open
+    ok = browser(url)
+    if ok is False:
+        raise CommandError(f"el navegador rechazó {url}")
+    return f"navegador · {url}"
+
+
+def run_terminal(command: dict[str, Any], root: Path, **hooks: Any) -> str:
+    line = str(command.get("command") or "").strip()
+    if not line:
+        raise CommandError("command vacío")
+    if is_catastrophic(line):
+        raise CommandError("comando bloqueado por política de seguridad")
+    if needs_confirmation(line) and not confirm_dangerous(line, ask=hooks.get("ask")):
+        raise CommandError("el maestro rechazó el comando en la terminal")
+    cwd_raw = str(command.get("cwd") or "").strip()
+    cwd = resolve_under(root, safe_relative(cwd_raw, what="cwd")) if cwd_raw else root.resolve()
+    if not cwd.exists():
+        cwd.mkdir(parents=True, exist_ok=True)
+    popen = hooks.get("popen") or subprocess.Popen
+    proc = popen(
+        line,
+        shell=True,
+        cwd=str(cwd),
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    pid = getattr(proc, "pid", "?")
+    return f"terminal · pid {pid} · cwd {cwd} · {line}"
+
+
+def app_control(command: dict[str, Any], root: Path, **hooks: Any) -> str:  # noqa: ARG001
+    app = str(command.get("app") or "").strip()
+    action = str(command.get("app_action") or "open").strip().lower()
+    if action not in {"open", "close"}:
+        raise CommandError(f"app_action inválida: {action}")
+    if not app or re.search(r"[;|&$`<>\\/\n\r]", app):
+        raise CommandError(f"nombre de aplicación no válido: {app!r}")
+    argv = app_argv(app, action, system=hooks.get("system"))
+    runner = hooks.get("opener") or subprocess.run
+    runner(argv, check=False, timeout=30)
+    return f"app · {action} {app} · {' '.join(argv)}"
+
+
+def create_project(command: dict[str, Any], root: Path, **hooks: Any) -> str:
     """Crea carpetas y archivos bajo `root` y abre el IDE si se pide. Devuelve el resumen."""
     project_rel = safe_relative(command.get("path", ""), what="path")
     project_dir = resolve_under(root, project_rel)
@@ -117,6 +273,7 @@ def create_project(command: dict[str, Any], root: Path, *, opener: Callable[...,
 
     open_with = str(command.get("open_with") or "none").lower()
     opened = "no"
+    opener = hooks.get("opener") or subprocess.run
     if open_with != "none":
         exe = ide_command(open_with)
         if exe:
@@ -131,15 +288,20 @@ def create_project(command: dict[str, Any], root: Path, *, opener: Callable[...,
     return f"{project_dir} · {len(written)} archivo(s): {', '.join(written) or '(ninguno)'} · IDE: {opened}"
 
 
-HANDLERS: dict[str, Callable[..., str]] = {"CREATE_PROJECT": create_project}
+HANDLERS: dict[str, Callable[..., str]] = {
+    "CREATE_PROJECT": create_project,
+    "OPEN_URL": open_url,
+    "RUN_TERMINAL": run_terminal,
+    "APP_CONTROL": app_control,
+}
 
 
-def execute(command: dict[str, Any], root: Path, *, opener: Callable[..., Any] = subprocess.run) -> str:
+def execute(command: dict[str, Any], root: Path, **hooks: Any) -> str:
     action = str(command.get("action") or "").upper()
     handler = HANDLERS.get(action)
     if handler is None:
         raise CommandError(f"acción desconocida: {action or '(vacía)'}")
-    return handler(command, root, opener=opener)
+    return handler(command, root, **hooks)
 
 
 # ---------------------------------------------------------------------------
@@ -181,15 +343,16 @@ class JarvisClient:
 # ---------------------------------------------------------------------------
 
 
-def process_pending(client: JarvisClient, root: Path, *, opener: Callable[..., Any] = subprocess.run) -> int:
+def process_pending(client: JarvisClient, root: Path, **hooks: Any) -> int:
     """Una pasada: recoge, ejecuta y confirma. Devuelve cuántos comandos procesó."""
     commands = client.pending()
     for command in commands:
         cid = str(command.get("id") or "?")
         action = str(command.get("action") or "?")
-        log(f"⬇ {action} {cid}: {command.get('description') or command.get('path')}")
+        label = command.get("description") or command.get("url") or command.get("command") or command.get("app") or command.get("path")
+        log(f"⬇ {action} {cid}: {label}")
         try:
-            detail = execute(command, root, opener=opener)
+            detail = execute(command, root, **hooks)
             log(f"✔ {cid}: {detail}")
             ok = True
         except CommandError as exc:
