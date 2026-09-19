@@ -50,6 +50,24 @@ def test_offline_executor_falls_back_to_find_contact_info_without_domain():
     assert call["name"] == "find_contact_info"
 
 
+def test_offline_planner_stops_on_tavily_critical_error():
+    """Un fallo de Tavily no se reintenta: el string empieza por Error y antes eso bucleaba."""
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from jarvis.agents.research_agent import TAVILY_CRITICAL_ERROR
+
+    planner = OfflineChatModel(role="planner").with_structured_output(Plan)
+    plan = planner.invoke(
+        [
+            HumanMessage(content="Investiga a Ada Lovelace"),
+            ToolMessage(content=TAVILY_CRITICAL_ERROR, tool_call_id="call_tavily", name="web_search"),
+        ]
+    )
+    assert plan.is_complete is True
+    assert plan.final_answer == TAVILY_CRITICAL_ERROR
+    assert plan.tasks == []
+
+
 def test_offline_planner_closes_on_the_executor_draft():
     """Si el ejecutor ya redactó sin herramientas, planificar otra vuelta no aporta."""
     from langchain_core.messages import AIMessage, HumanMessage

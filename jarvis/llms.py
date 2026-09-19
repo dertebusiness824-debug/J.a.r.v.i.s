@@ -387,6 +387,13 @@ class OfflineChatModel(BaseChatModel):
         tool_msgs = [m for m in since_last_human(messages) if isinstance(m, ToolMessage)]
         if tool_msgs:
             last = str(tool_msgs[-1].content)
+            if last.startswith("Error crítico interno"):
+                return Plan(
+                    reasoning="La API de búsqueda falló; se informa y se detiene.",
+                    tasks=[],
+                    is_complete=True,
+                    final_answer=last,
+                )
             if last.lower().startswith("error"):
                 return Plan(
                     reasoning="La herramienta falló; se reintenta con otro enfoque.",

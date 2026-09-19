@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from jarvis.agents.research_agent import (
+    TAVILY_CRITICAL_ERROR,
     _tavily_search,
     advanced_dork_search,
     extract_social_profiles,
@@ -155,14 +156,33 @@ def test_tavily_search_trims_queries_the_api_would_reject(fake_tavily):
     assert len(fake_tavily.calls[0]["query"]) == 400
 
 
-def test_tavily_search_falls_back_and_leaves_a_trace(fake_tavily, caplog):
+def test_tavily_search_returns_critical_error_instead_of_raising(fake_tavily, caplog):
     fake_tavily.response = RuntimeError("401 unauthorized")
 
     with caplog.at_level("WARNING"):
-        assert _tavily_search("Ada Lovelace") is None
+        assert _tavily_search("Ada Lovelace") == TAVILY_CRITICAL_ERROR
 
     # Una clave caducada tiene que verse en los logs, no pasar por "sin resultados".
     assert "401 unauthorized" in caplog.text
+
+
+def test_tavily_search_empty_results_are_a_critical_error(fake_tavily):
+    fake_tavily.response = {"results": []}
+    assert _tavily_search("Ada Lovelace") == TAVILY_CRITICAL_ERROR
+
+
+def test_web_search_does_not_fall_back_when_tavily_fails(fake_tavily, monkeypatch):
+    fake_tavily.response = RuntimeError("sin red")
+    called = {"ddg": False}
+
+    def _boom(_query):
+        called["ddg"] = True
+        raise AssertionError("DuckDuckGo no debe correr si Tavily falló")
+
+    monkeypatch.setattr("jarvis.agents.research_agent._duckduckgo_search", _boom)
+    assert web_search.invoke({"query": "Ada Lovelace"}) == TAVILY_CRITICAL_ERROR
+    assert called["ddg"] is False
+    assert advanced_dork_search.invoke({"query": "Ada Lovelace"}) == TAVILY_CRITICAL_ERROR
 
 
 def test_tavily_search_needs_a_key(monkeypatch):

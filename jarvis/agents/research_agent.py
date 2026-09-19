@@ -41,6 +41,12 @@ USERNAME_TARGETS = (
 TAVILY_QUERY_LIMIT = 400
 TAVILY_TOPICS = ("general", "news", "finance")
 TAVILY_TIME_RANGES = ("day", "week", "month", "year")
+# El Ejecutor/Planificador deben ver esto y cerrar el turno: no reintentar ni caer
+# a DuckDuckGo (timeout 15 s), que es lo que hacía saltar el tope de 8 vueltas.
+TAVILY_CRITICAL_ERROR = (
+    "Error crítico interno: No se pudo conectar a la API de búsqueda. "
+    "Informa al usuario inmediatamente de este fallo y detén la investigación."
+)
 
 
 class WebSearchInput(BaseModel):
@@ -148,12 +154,13 @@ def _tavily_search(
     topic: str | None = None,
     time_range: str | None = None,
     max_results: int = 8,
-) -> list[dict[str, Any]] | None:
-    """Busca con el SDK oficial de Tavily. `None` si no hay clave o si la API falla.
+) -> list[dict[str, Any]] | str | None:
+    """Busca con el SDK oficial de Tavily.
 
-    Devolver `None` deja que `_public_search` caiga al proveedor de reserva, pero el
-    motivo se registra: una clave caducada tiene que verse en los logs, no disfrazarse
-    de "sin resultados".
+    `None` solo si no hay clave (entonces `_public_search` puede usar DuckDuckGo).
+    Si el SDK, la red o las credenciales fallan —o la API no trae datos— se
+    devuelve `TAVILY_CRITICAL_ERROR` y no se relanza la excepción: el agente
+    informa y cierra en la primera vuelta.
     """
     key = _tavily_api_key()
     if not key:
@@ -161,8 +168,8 @@ def _tavily_search(
     try:
         from tavily import TavilyClient
     except ImportError:
-        logger.warning("🔎 [TAVILY] falta el paquete tavily-python; uso el proveedor de reserva")
-        return None
+        logger.warning("🔎 [TAVILY] falta el paquete tavily-python")
+        return TAVILY_CRITICAL_ERROR
 
     params: dict[str, Any] = {
         "query": " ".join((query or "").split())[:TAVILY_QUERY_LIMIT],
@@ -184,13 +191,13 @@ def _tavily_search(
     try:
         raw = TavilyClient(api_key=key).search(**params)
     except Exception as exc:
-        logger.warning("🔎 [TAVILY] búsqueda fallida (%s); uso el proveedor de reserva", exc)
-        return None
+        logger.warning("🔎 [TAVILY] búsqueda fallida (%s); detengo la investigación", exc)
+        return TAVILY_CRITICAL_ERROR
 
     items = raw.get("results") if isinstance(raw, dict) else None
     if not isinstance(items, list):
-        logger.warning("🔎 [TAVILY] respuesta sin resultados utilizables; uso el proveedor de reserva")
-        return None
+        logger.warning("🔎 [TAVILY] respuesta sin resultados utilizables; detengo la investigación")
+        return TAVILY_CRITICAL_ERROR
 
     results: list[dict[str, Any]] = []
     for item in items:
@@ -205,7 +212,10 @@ def _tavily_search(
         if item.get("score") is not None:
             result["score"] = item["score"]
         results.append(result)
-    return results or None
+    if not results:
+        logger.warning("🔎 [TAVILY] la API no devolvió datos; detengo la investigación")
+        return TAVILY_CRITICAL_ERROR
+    return results
 
 
 def _duckduckgo_search(query: str) -> list[dict[str, Any]]:
@@ -252,9 +262,11 @@ def _duckduckgo_search(query: str) -> list[dict[str, Any]]:
     return results[:8]
 
 
-def _public_search(query: str, **options: Any) -> dict[str, Any]:
+def _public_search(query: str, **options: Any) -> dict[str, Any] | str:
     """Tavily o DuckDuckGo; nunca lanza: un bloqueo HTTP no tumba al agente.
 
+    Si Tavily está configurado y falla, se devuelve `TAVILY_CRITICAL_ERROR` tal cual
+    (sin caer a DuckDuckGo: ese GET tarda hasta 15 s y Vapi cuelga la llamada).
     `query` va limpia. El `site:` solo se compone para el proveedor de reserva, porque
     Tavily filtra por dominio con un parámetro y el operador dentro del texto solo
     ensuciaría la consulta semántica.
@@ -263,6 +275,8 @@ def _public_search(query: str, **options: Any) -> dict[str, Any]:
     # aquí para no llamar a Tavily con parámetros nulos.
     options = {key: value for key, value in options.items() if value}
     tavily = _tavily_search(query, **options)
+    if isinstance(tavily, str):
+        return tavily
     if tavily:
         return {"provider": "tavily", "query": query, "results": tavily, **options}
     fallback = _compose_dork(query, options.get("site"))
@@ -435,6 +449,8 @@ def web_search(query: str, topic: str | None = None, time_range: str | None = No
     """Busca información pública en internet (Tavily si hay clave; si no, DuckDuckGo)."""
     mark_researching()
     payload = _public_search(query, topic=topic, time_range=time_range)
+    if isinstance(payload, str):
+        return payload
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -448,6 +464,8 @@ def advanced_dork_search(
     """Búsqueda profunda. Si hay site, restringe los resultados a ese dominio."""
     mark_researching()
     payload = _public_search(query, site=site, topic=topic, time_range=time_range)
+    if isinstance(payload, str):
+        return payload
     payload["dork"] = _compose_dork(query, site)
     payload["site"] = site
     payload["tool"] = "advanced_dork_search"
@@ -541,6 +559,8 @@ def find_contact_info(domain_or_company: str, person_name: str | None = None) ->
     else:
         query = f"{company} email OR contacto OR teléfono OR phone"
     search = _public_search(query)
+    if isinstance(search, str):
+        return search
     emails, phones = _harvest_contacts(_flatten_search_text(search))
     payload: dict[str, Any] = {
         "mode": "harvest" if (emails or phones) else "demo",
