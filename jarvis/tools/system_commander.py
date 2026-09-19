@@ -1,19 +1,19 @@
-"""SystemCommanderTool: el agente pide crear un proyecto en el ordenador del usuario.
+"""SystemCommanderTool: el agente pide acciones en el ordenador del usuario.
 
-El backend corre en Render y no debe (ni puede) escribir en el disco del usuario.
-Esta herramienta no crea nada: valida, estructura el comando estandarizado
+El backend corre en Render y no debe (ni puede) tocar el disco ni las apps del
+usuario. Esta herramienta no ejecuta nada: valida, estructura un comando
+estandarizado y lo deja en la cola de `jarvis.commands`. `local_node.py` lo
+recoge por `GET /api/commands/pending` y lo ejecuta en el PC.
 
-    {"action": "CREATE_PROJECT", "path": "./taller-web",
-     "files": [{"name": "index.html", "content": "..."}], "open_with": "cursor"}
+Acciones:
 
-y lo deja en la cola de `jarvis.commands`, de donde lo recoge `local_node.py` por
-`GET /api/commands/pending` para crear las carpetas y abrir Cursor.
+    CREATE_PROJECT  {path, files, open_with}
+    OPEN_URL        {url}
+    RUN_TERMINAL    {command, cwd?}
+    APP_CONTROL     {app, app_action: open|close}
 
-El LLM puede llegar de dos maneras: con los archivos ya redactados (`files`, lo
-normal con function calling) o solo con la instrucción (`brief`, p.ej. «Crea una
-web HTML para un taller»). En el segundo caso la herramienta redacta el proyecto
-con el modelo ejecutor; sin credenciales monta un andamio mínimo para que el
-circuito completo se pueda probar sin claves.
+Para CREATE_PROJECT el LLM puede llegar con los archivos ya redactados o solo
+con la instrucción (`brief`); sin credenciales se monta un andamio mínimo.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from jarvis.commands import MAX_FILES, ProjectFile, SystemCommand, enqueue_command
+from jarvis.commands import MAX_FILES, ProjectFile, SystemCommand, enqueue_command, needs_confirmation
 from jarvis.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -51,16 +51,20 @@ class ProjectFileInput(BaseModel):
 
 
 class SystemCommanderInput(BaseModel):
+    action: str = Field(
+        default="CREATE_PROJECT",
+        description="CREATE_PROJECT (archivos + Cursor), OPEN_URL (navegador), RUN_TERMINAL (comando en el PC) o APP_CONTROL (abrir/cerrar una app).",
+    )
     brief: str = Field(
         default="",
         description=(
-            "Instrucción de creación de código en lenguaje natural, p.ej. 'Crea una web HTML "
-            "para un taller mecánico'. Obligatoria si no se pasan files."
+            "Instrucción en lenguaje natural. En CREATE_PROJECT es el encargo si no se pasan files; "
+            "en el resto, una frase para el log del nodo."
         ),
     )
     path: str = Field(
         default="",
-        description="Carpeta del proyecto en el ordenador del usuario, relativa, p.ej. './taller-web'. Si se omite se deriva del brief.",
+        description="Carpeta del proyecto, relativa, p.ej. './taller-web'. Solo CREATE_PROJECT.",
     )
     files: list[ProjectFileInput] = Field(
         default_factory=list,
@@ -68,8 +72,13 @@ class SystemCommanderInput(BaseModel):
     )
     open_with: str = Field(
         default="cursor",
-        description="IDE con el que abrir el proyecto al crearlo: 'cursor' (por defecto), 'code' o 'none'.",
+        description="IDE al crear el proyecto: 'cursor' (por defecto), 'code' o 'none'.",
     )
+    url: str = Field(default="", description="URL http(s) para OPEN_URL, p.ej. 'https://github.com'.")
+    command: str = Field(default="", description="Comando de terminal para RUN_TERMINAL, p.ej. 'npm run dev'.")
+    cwd: str = Field(default="", description="Directorio relativo a la raíz del nodo para RUN_TERMINAL.")
+    app: str = Field(default="", description="Nombre de la aplicación para APP_CONTROL, p.ej. 'Spotify'.")
+    app_action: str = Field(default="open", description="Para APP_CONTROL: 'open' o 'close'.")
 
 
 class ProjectSpec(BaseModel):
@@ -193,10 +202,31 @@ def _normalize_open_with(value: str) -> str:
     return "cursor"
 
 
-def build_command(
-    *, brief: str = "", path: str = "", files: list[Any] | None = None, open_with: str = "cursor"
-) -> SystemCommand:
-    """Convierte los argumentos del LLM en el comando validado (sin encolarlo)."""
+def _normalize_action(value: str) -> str:
+    raw = (value or "CREATE_PROJECT").strip().upper().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "CREATE": "CREATE_PROJECT",
+        "PROJECT": "CREATE_PROJECT",
+        "OPENURL": "OPEN_URL",
+        "OPEN": "OPEN_URL",
+        "URL": "OPEN_URL",
+        "RUN": "RUN_TERMINAL",
+        "TERMINAL": "RUN_TERMINAL",
+        "SHELL": "RUN_TERMINAL",
+        "APP": "APP_CONTROL",
+        "APPLICATION": "APP_CONTROL",
+    }
+    return aliases.get(raw, raw)
+
+
+def _normalize_app_action(value: str) -> str:
+    lowered = (value or "open").strip().lower()
+    if lowered in {"close", "cerrar", "quita", "kill", "quit", "stop"}:
+        return "close"
+    return "open"
+
+
+def _project_command(*, brief: str, path: str, files: list[Any] | None, open_with: str) -> SystemCommand:
     items = [f if isinstance(f, ProjectFileInput) else ProjectFileInput(**dict(f)) for f in (files or [])]
     description = brief.strip()
     if not items:
@@ -217,37 +247,113 @@ def build_command(
     )
 
 
-@tool(TOOL_NAME, args_schema=SystemCommanderInput)
-def system_commander(brief: str = "", path: str = "", files: list[ProjectFileInput] | None = None, open_with: str = "cursor") -> str:
-    """Crea un proyecto de código EN EL ORDENADOR DEL USUARIO y lo abre en su IDE (Cursor).
+def build_command(
+    *,
+    action: str = "CREATE_PROJECT",
+    brief: str = "",
+    path: str = "",
+    files: list[Any] | None = None,
+    open_with: str = "cursor",
+    url: str = "",
+    command: str = "",
+    cwd: str = "",
+    app: str = "",
+    app_action: str = "open",
+) -> SystemCommand:
+    """Convierte los argumentos del LLM en el comando validado (sin encolarlo)."""
+    kind = _normalize_action(action)
+    description = brief.strip()[:200]
+    if kind == "CREATE_PROJECT":
+        return _project_command(brief=brief, path=path, files=files, open_with=open_with)
+    if kind == "OPEN_URL":
+        return SystemCommand(action="OPEN_URL", url=url or brief, description=description or url)
+    if kind == "RUN_TERMINAL":
+        return SystemCommand(
+            action="RUN_TERMINAL",
+            command=command or brief,
+            cwd=cwd,
+            description=description or command,
+        )
+    if kind == "APP_CONTROL":
+        return SystemCommand(
+            action="APP_CONTROL",
+            app=app or brief,
+            app_action=_normalize_app_action(app_action),  # type: ignore[arg-type]
+            description=description or app,
+        )
+    raise ValueError(f"acción desconocida: {action}")
 
-    No escribe en el servidor: emite un comando CREATE_PROJECT que el nodo local del
-    usuario (local_node.py) ejecuta en su PC. Úsalo cuando pidan crear archivos,
-    una web, un script o un proyecto "en mi ordenador", "en Cursor" o "ábrelo".
-    Pasa los archivos completos en `files` (preferible) o solo la instrucción en `brief`.
+
+def _spoken(command: SystemCommand) -> str:
+    if command.action == "CREATE_PROJECT":
+        n = len(command.files)
+        ide = {"cursor": "Cursor", "code": "VS Code"}.get(command.open_with)
+        return (
+            f"Proyecto {command.path} con {n} archivo{'s' if n != 1 else ''} enviado a su equipo, maestro"
+            + (f"; se abrirá en {ide} en cuanto el nodo local lo recoja." if ide else ".")
+        )
+    if command.action == "OPEN_URL":
+        return f"Abriendo {command.url} en su navegador, maestro."
+    if command.action == "RUN_TERMINAL":
+        extra = " El nodo pedirá confirmación Y/N si el comando borra archivos o reinicia." if needs_confirmation(command.command) else ""
+        return f"Comando enviado a su terminal, maestro.{extra}"
+    verb = "Cerrando" if command.app_action == "close" else "Abriendo"
+    return f"{verb} {command.app} en su equipo, maestro."
+
+
+@tool(TOOL_NAME, args_schema=SystemCommanderInput)
+def system_commander(
+    action: str = "CREATE_PROJECT",
+    brief: str = "",
+    path: str = "",
+    files: list[ProjectFileInput] | None = None,
+    open_with: str = "cursor",
+    url: str = "",
+    command: str = "",
+    cwd: str = "",
+    app: str = "",
+    app_action: str = "open",
+) -> str:
+    """Controla el ORDENADOR DEL USUARIO: crear un proyecto, abrir una URL, lanzar un
+    comando de terminal o abrir/cerrar una aplicación (Spotify, WhatsApp, Terminal).
+
+    No ejecuta nada en el servidor: emite un comando (CREATE_PROJECT, OPEN_URL,
+    RUN_TERMINAL, APP_CONTROL) que el nodo local (local_node.py) recoge y ejecuta.
+    Úsalo cuando pidan algo "en mi ordenador", "en Cursor", "ábrelo", "abre Spotify"
+    o "arranca npm run dev". Los comandos destructivos (rm, del, reboot) los
+    confirmará el usuario en la terminal del nodo.
     """
     try:
-        command = build_command(brief=brief, path=path, files=files, open_with=open_with)
+        built = build_command(
+            action=action,
+            brief=brief,
+            path=path,
+            files=files,
+            open_with=open_with,
+            url=url,
+            command=command,
+            cwd=cwd,
+            app=app,
+            app_action=app_action,
+        )
     except ValueError as exc:
         return f"Error: {exc}"
-    record = enqueue_command(command, origin="code_agent")
+    record = enqueue_command(built, origin="code_agent")
     settings = get_settings()
     summary = {
         "queued": True,
         "id": record.id,
-        "action": command.action,
-        "path": command.path,
-        "files": [f.name for f in command.files],
-        "open_with": command.open_with,
+        "action": built.action,
+        "path": built.path,
+        "files": [f.name for f in built.files],
+        "open_with": built.open_with,
+        "url": built.url,
+        "command": built.command,
+        "cwd": built.cwd,
+        "app": built.app,
+        "app_action": built.app_action,
         "pending_endpoint": f"{settings.jarvis_public_url.rstrip('/')}/api/commands/pending",
-        "note": "El nodo local (local_node.py) creará el proyecto en el PC del usuario y abrirá el IDE en cuanto lo recoja.",
+        "note": "El nodo local (local_node.py) ejecutará esto en el PC del usuario.",
     }
-    logger.info("📦 [SYSTEM COMMANDER] %s encolado: %s (%d archivos, %s)", record.id, command.path, len(command.files), command.open_with)
-    n = len(command.files)
-    ide = {"cursor": "Cursor", "code": "VS Code"}.get(command.open_with)
-    spoken = (
-        f"Proyecto {command.path} con {n} archivo{'s' if n != 1 else ''} enviado a su equipo, maestro"
-        + (f"; se abrirá en {ide} en cuanto el nodo local lo recoja." if ide else ".")
-    )
-    # Primera línea pronunciable; debajo el detalle para el LLM y los logs.
-    return spoken + "\n" + json.dumps(summary, ensure_ascii=False)
+    logger.info("📦 [SYSTEM COMMANDER] %s %s encolado", record.id, built.action)
+    return _spoken(built) + "\n" + json.dumps(summary, ensure_ascii=False)

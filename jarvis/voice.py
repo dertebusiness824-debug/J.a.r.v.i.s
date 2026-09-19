@@ -31,7 +31,7 @@ TOOL_NARRATION: dict[str, str] = {
     "send_whatsapp_message": "Enviando el WhatsApp, maestro.",
     "send_zadarma_sms": "Enviando el SMS, maestro.",
     "run_terminal": "Ejecutando el comando, maestro.",
-    "system_commander": "Preparando el proyecto para su equipo, maestro.",
+    "system_commander": "Enviando la orden a su equipo, maestro.",
     "write_file": "Escribiendo el archivo, maestro.",
 }
 
