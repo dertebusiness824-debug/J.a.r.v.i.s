@@ -30,6 +30,8 @@ def test_offline_router_code_comms_shop_general():
     assert router.invoke("¿Cuánto es 3+4?").next_agent == "general"
     assert router.invoke("Consigue los correos públicos de acme.com").next_agent == "research_agent"
     assert router.invoke("Comprueba el username ada en github").next_agent == "research_agent"
+    assert router.invoke("Abre la calculadora").next_agent == "general"
+    assert router.invoke("Haz un pitido en mi PC").next_agent == "general"
 
 
 def _osint_tool_call(query: str) -> dict:
@@ -37,6 +39,18 @@ def _osint_tool_call(query: str) -> dict:
     message = executor.invoke([{"role": "user", "content": query}])
     assert message.tool_calls, f"sin tool call para {query}"
     return message.tool_calls[0]
+
+
+def test_offline_executor_sends_calculator_over_websocket():
+    from jarvis.tools import CORE_TOOLS
+
+    executor = OfflineChatModel(role="executor").bind_tools(CORE_TOOLS)
+    message = executor.invoke([{"role": "user", "content": "Abre la calculadora"}])
+    assert message.tool_calls
+    call = message.tool_calls[0]
+    assert call["name"] == "execute_local_command"
+    assert call["args"]["command_type"] == "OPEN_APP"
+    assert call["args"]["payload"]["app"] == "calculator"
 
 
 def test_offline_executor_sends_domain_to_find_public_emails():

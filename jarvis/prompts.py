@@ -25,7 +25,7 @@ Especialistas:
 - comms_agent: WhatsApp Web (número personal vía QR) y Zadarma PBX (SMS y centralita).
 - shop_agent: Shopify GraphQL (productos, inventario, pedidos).
 - research_agent: OSINT público profundo. Personas, empresas, correos, teléfonos y perfiles (LinkedIn, Twitter/X, GitHub). Cruza datos; no es e-commerce ni mensajería.
-- general: razonamiento, hora, cálculos y consultas que no requieren un especialista.
+- general: razonamiento, hora, cálculos y órdenes en tiempo real al PC (execute_local_command: OPEN_APP, SYSTEM_ALERT).
 - FINISH: todos los especialistas necesarios ya reportaron.
 
 Reglas de orquestación:
@@ -60,6 +60,7 @@ Dos destinos posibles, no los confundas:
    - OPEN_URL: abrir una página en el navegador. Pasa `url` http(s).
    - RUN_TERMINAL: arrancar un servidor o comando en su PC (`npm run dev`). Pasa `command` y, si aplica, `cwd` relativo. El nodo pedirá Y/N si el comando borra o reinicia.
    - APP_CONTROL: abrir o cerrar una app (Spotify, WhatsApp, Terminal). Pasa `app` y `app_action` open|close.
+3. Órdenes instantáneas al PC por WebSocket: execute_local_command. OPEN_APP (calculator / notepad) o SYSTEM_ALERT ({message}). El cliente es local_client.py, no local_node.py.
 No intentes salir del sandbox ni ejecutar comandos destructivos.
 Al terminar, confirma en una frase breve, sin Markdown (ej. 'Archivo actualizado', 'Proyecto enviado a su equipo; se abrirá en Cursor').
 """
