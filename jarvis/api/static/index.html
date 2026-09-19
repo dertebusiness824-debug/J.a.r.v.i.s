@@ -312,6 +312,7 @@
     </div>
 
     <script src="/static/format-error.js"></script>
+    <script src="/static/transcripts.js"></script>
     <script src="/static/hud.js"></script>
     <script>
       const terminal = document.getElementById("terminal");
@@ -379,6 +380,8 @@
       let clientResearching = false;
       let serverResearching = false;
       let needsManualStart = false;
+      let heardSpeech = false;
+      const transcriptFeed = createTranscriptFeed();
 
       function isResearching() {
         return clientResearching || serverResearching;
@@ -475,12 +478,26 @@
         if (RESEARCH_DONE_TYPES.has(type) && !researchToolsIn(msg)) {
           setResearching(false);
         }
-        if (type === "transcript" && msg.transcript && (!msg.transcriptType || msg.transcriptType === "final")) {
-          const who = msg.role === "assistant" ? "JARVIS" : "Tú";
-          log(who + ": " + msg.transcript);
-          if (msg.role !== "assistant" && isResearchQuery(msg.transcript)) setResearching(true);
-          if (msg.role === "assistant") setResearching(false);
+        // Transcripciones finales (`transcript`) o, si el asistente del panel no
+        // las envía, el historial de `conversation-update`. Ver transcripts.js.
+        for (const said of transcriptFeed.ingest(msg)) {
+          log(said.line);
+          if (said.role === "user" && isResearchQuery(said.text)) setResearching(true);
+          if (said.role === "assistant") setResearching(false);
         }
+      }
+
+      window.handleVapiMessage = handleVapiMessage;
+
+      function reportSilentTranscripts() {
+        // Alguien habló y no llegó ni una línea: el asistente del panel no tiene
+        // marcados `transcript` ni `conversation-update` en sus Client Messages.
+        const { transcripts, printed } = transcriptFeed.stats();
+        if (!heardSpeech || transcripts > 0 || printed > 0) return;
+        log(
+          "SISTEMA: Vapi no envió transcripciones al HUD. En el panel del asistente, " +
+            "Advanced → Client Messages, activa transcript (y conversation-update)."
+        );
       }
 
       async function refreshInbox() {
@@ -735,6 +752,8 @@
             const Vapi = mod.default;
             vapi = new Vapi(voiceCfg.vapi_public_key);
             vapi.on("call-start", () => {
+              transcriptFeed.reset();
+              heardSpeech = false;
               setCallStatus("listening");
               setTalk("COLGAR", true);
               talkStatus.textContent = "En llamada. Pulsa el núcleo para colgar.";
@@ -746,8 +765,10 @@
               setResearching(false);
               talkStatus.textContent = "Llamada terminada. Pulsa el núcleo para continuar.";
               log("Llamada de voz finalizada.");
+              reportSilentTranscripts();
             });
             vapi.on("speech-start", () => {
+              heardSpeech = true;
               if (isCallActive) setCallStatus("speaking");
             });
             vapi.on("speech-end", () => {
@@ -765,7 +786,12 @@
               log("ERROR Vapi " + text);
             });
             vapi.on("message", (msg) => {
-              handleVapiMessage(msg);
+              try {
+                handleVapiMessage(msg);
+              } catch (err) {
+                // Un payload raro no puede dejar la terminal muda para el resto de la llamada.
+                console.error("Mensaje de Vapi no procesado", err, msg);
+              }
             });
             talkMode = "vapi";
             talkStatus.textContent = "Iniciando canales de voz…";
