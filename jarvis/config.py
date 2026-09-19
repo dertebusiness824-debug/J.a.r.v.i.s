@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     jarvis_recursion_limit: int = 25
     jarvis_db_path: str = "./data/jarvis.db"
     jarvis_public_url: str = "https://j-a-r-v-i-s-yghr.onrender.com"
+    # Command Emission: secreto compartido entre el backend y local_node.py. Sin él,
+    # /api/commands queda abierto y cualquiera con la URL podría encolar archivos
+    # hacia el PC del usuario.
+    jarvis_node_token: str | None = None
 
     email_host: str | None = None
     email_user: str | None = None

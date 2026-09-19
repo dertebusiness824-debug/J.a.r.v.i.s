@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from jarvis.config import get_settings
+from jarvis.tools.system_commander import system_commander
 
 _BIN_OPS: dict[type, object] = {
     ast.Add: op.add,
@@ -295,7 +296,7 @@ def shopify_inventory_summary(product_id: str | None = None) -> str:
 
 
 CORE_TOOLS = [get_current_time, calculate_expression]
-CODE_TOOLS = [read_file, write_file, list_directory, run_terminal, *CORE_TOOLS]
+CODE_TOOLS = [read_file, write_file, list_directory, run_terminal, system_commander, *CORE_TOOLS]
 COMMS_TOOLS = [send_whatsapp_message, send_zadarma_sms, get_current_time]
 SHOP_TOOLS = [
     shopify_list_products,
@@ -310,6 +311,7 @@ ALL_TOOLS = [
     write_file,
     list_directory,
     run_terminal,
+    system_commander,
     send_whatsapp_message,
     send_zadarma_sms,
     shopify_list_products,

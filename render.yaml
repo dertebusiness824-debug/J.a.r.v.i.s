@@ -43,5 +43,8 @@ services:
         sync: false
       - key: TAVILY_API_KEY
         sync: false
+      # Command Emission: el mismo valor va en tu PC (local_node.py --token).
+      - key: JARVIS_NODE_TOKEN
+        sync: false
       - key: HUNTERIO_API_KEY
         sync: false

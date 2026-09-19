@@ -25,6 +25,7 @@ from jarvis.api.schemas import (
 from jarvis.db import inbox_status, init_db
 from jarvis.config import get_settings
 from jarvis.api.vapi_routes import router as vapi_router
+from jarvis.api.commands import router as commands_router
 from jarvis.integrations.messaging import WhatsAppClient
 from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(vapi_router)
+    app.include_router(commands_router)
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

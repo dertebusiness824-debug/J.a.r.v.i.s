@@ -26,7 +26,11 @@ jarvis/
     general.py
   api/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
+    commands.py        # /api/commands: cola de Command Emission
     app.py
+  commands.py          # Comandos CREATE_PROJECT: contrato, validación y cola
+  tools/system_commander.py  # La tool que emite proyectos hacia el PC del usuario
+local_node.py          # Corre en TU ordenador: sondea la cola, crea archivos, abre Cursor
   integrations/
     zadarma.py         # REST firmada (Key+Secret) + SMS PBX
     cartesia.py
@@ -136,6 +140,28 @@ Cada turno deja rastro en la consola (Render, Railway o local) para saber en qu�
 | `🔁 [CORE LOOP]` | El subgrafo de un especialista no cerró dentro del presupuesto de vueltas y se respondió con el mejor borrador disponible. |
 
 El subgrafo Planificador → Ejecutor → Herramientas tiene un tope de vueltas (`JARVIS_MAX_ITERATIONS`, siempre por debajo de `JARVIS_RECURSION_LIMIT`): si el planificador no cierra, el turno responde con el último borrador en vez de morir con `GraphRecursionError` y dejar a Vapi diciendo «Error interno del sistema».
+
+## Control del sistema local (Command Emission)
+
+Jarvis vive en Render y no puede tocar tu disco. Cuando le pides «Crea una web HTML para un taller y ábrela en Cursor», el Code Agent no escribe nada en el servidor: llama a `system_commander`, que estructura el comando estandarizado y lo apila en la cola.
+
+```json
+{ "action": "CREATE_PROJECT", "path": "./taller-web",
+  "files": [{ "name": "index.html", "content": "…" }], "open_with": "cursor" }
+```
+
+Un script en tu ordenador, `local_node.py` (solo biblioteca estándar, Python 3.9+), lo recoge y lo ejecuta:
+
+```bash
+# En tu PC. Los proyectos se crean bajo ~/JarvisProjects (cámbialo con --root).
+JARVIS_NODE_TOKEN=<el mismo que en Render> python local_node.py --url https://<host>
+```
+
+Ciclo: `pending` → `GET /api/commands/pending` lo entrega y lo marca `delivered` (dos sondeos, o dos PCs, no crean el mismo proyecto dos veces) → el nodo crea carpetas y archivos con `pathlib`, y si `open_with` es `cursor` ejecuta `cursor <ruta>` → `POST /api/commands/{id}/ack` lo deja en `done` o `failed`. `GET /api/commands` muestra el historial y `POST /api/commands` encola a mano para probar el nodo sin el LLM. El sondeo va cada 2 s y, si el backend no responde, el nodo espera cada vez más (hasta 30 s) en vez de martillear.
+
+Lo que redacta los archivos es el LLM: con function calling pasa `files` completos; si solo llega la instrucción (`brief`), la tool la redacta con el modelo ejecutor, y en modo offline monta un andamio (`index.html`, `css/`, `js/`, `README.md`) para que el circuito entero se pueda probar sin claves.
+
+Seguridad, en dos capas. El backend rechaza al encolar cualquier ruta absoluta, con `..` o con unidad de Windows, y limita el tamaño (60 archivos, 1,5 MB). El nodo vuelve a comprobarlo y **solo escribe dentro de `--root`**, aunque el backend estuviera comprometido. Configura `JARVIS_NODE_TOKEN` en Render y en tu PC: sin él, `/api/commands` queda abierto y cualquiera con la URL podría encolar archivos hacia tu ordenador (el nodo lo avisa al arrancar). Si `cursor` no está en el PATH, los archivos se crean igual y el nodo te dice cómo instalar el comando (Cursor → Paleta → «Shell Command: Install 'cursor' command»).
 
 ## Producción (Railway / Render)
 
