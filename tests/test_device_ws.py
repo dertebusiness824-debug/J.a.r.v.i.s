@@ -3,7 +3,8 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from jarvis.api.app import create_app
-from jarvis.api.device_ws import DEVICE_WS_PATH, manager
+from jarvis.api.device_ws import DEVICE_WS_PATH
+from jarvis.device_bridge import manager
 from jarvis.config import get_settings
 from jarvis.tools import CORE_TOOLS, tools_by_agent
 from jarvis.tools.device_control import execute_local_command

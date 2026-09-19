@@ -27,7 +27,8 @@ jarvis/
   api/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
     commands.py        # /api/commands: cola de Command Emission
-    device_ws.py       # WS /ws/device-control + Connection Manager
+    device_ws.py       # WS /ws/device-control
+  device_bridge.py     # Connection Manager (sockets vivos del PC)
     app.py
   commands.py          # Comandos CREATE_PROJECT / OPEN_URL / RUN_TERMINAL / APP_CONTROL
   tools/system_commander.py  # La tool que emite órdenes hacia el PC del usuario

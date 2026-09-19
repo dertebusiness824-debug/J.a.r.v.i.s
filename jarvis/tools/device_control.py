@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from jarvis.api.device_ws import manager
+from jarvis.device_bridge import manager
 
 TOOL_NAME = "execute_local_command"
 ALLOWED_COMMANDS = frozenset({"OPEN_APP", "SYSTEM_ALERT"})
