@@ -97,6 +97,60 @@ def _is_project_request(text: str) -> bool:
     lowered = (text or "").lower()
     return any(n in lowered for n in _PROJECT_NOUNS) and any(v in lowered for v in _PROJECT_VERBS)
 
+
+_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_KNOWN_SITES = {
+    "google": "https://www.google.com",
+    "youtube": "https://www.youtube.com",
+    "github": "https://github.com",
+}
+_KNOWN_APPS = (
+    "spotify",
+    "whatsapp",
+    "chrome",
+    "firefox",
+    "safari",
+    "terminal",
+    "notes",
+    "calculator",
+    "slack",
+    "discord",
+)
+
+
+def _system_control_args(text: str) -> dict[str, str] | None:
+    """Argumentos de system_commander para abrir URL, app o terminal en el PC del usuario."""
+    raw = text or ""
+    lowered = raw.lower()
+    urls = _URL_RE.findall(raw)
+    if urls:
+        return {"action": "OPEN_URL", "url": urls[0].rstrip(".,);]}"), "brief": raw}
+    for name, url in _KNOWN_SITES.items():
+        if re.search(rf"\b(?:abre|abrir|ábreme|abreme)\b.*\b{name}\b", lowered):
+            return {"action": "OPEN_URL", "url": url, "brief": raw}
+    for app in _KNOWN_APPS:
+        if not re.search(rf"\b{app}\b", lowered):
+            continue
+        if any(k in lowered for k in ("cierra", "cerrar", "quita", "cierra")):
+            return {"action": "APP_CONTROL", "app": app, "app_action": "close", "brief": raw}
+        if any(k in lowered for k in ("abre", "abrir", "ábre", "lanza", "abre")):
+            return {"action": "APP_CONTROL", "app": app, "app_action": "open", "brief": raw}
+    npm = re.search(r"(npm\s+run\s+\S+)", raw, re.IGNORECASE)
+    if npm and any(k in lowered for k in ("arranca", "ejecuta", "corre", "lanza", "terminal", "servidor")):
+        return {"action": "RUN_TERMINAL", "command": npm.group(1), "brief": raw}
+    lead = re.search(
+        r"(?:arranca|ejecuta|corre|lanza)\s+(?:en\s+mi\s+(?:pc|ordenador|terminal)\s+)?(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if lead and any(k in lowered for k in ("en mi pc", "en mi ordenador", "en mi terminal", "en la terminal")):
+        return {"action": "RUN_TERMINAL", "command": lead.group(1).strip().rstrip("."), "brief": raw}
+    return None
+
+
+def _is_system_control_request(text: str) -> bool:
+    return _system_control_args(text) is not None
+
 _RESEARCH_PHRASES = (
     "recopilar información",
     "recopila información",
@@ -262,8 +316,15 @@ class OfflineChatModel(BaseChatModel):
                     visited = {part.strip() for part in raw.split(",") if part.strip()}
 
         lowered = query.lower()
-        if _is_project_request(query) and "code_agent" not in visited:
-            return RouteDecision(next_agent="code_agent", rationale="Proyecto para el ordenador del usuario.")
+        if _is_system_control_request(query) or _is_project_request(query):
+            if "code_agent" in visited:
+                return RouteDecision(next_agent="FINISH", rationale="La orden ya se emitió al nodo local.")
+            return RouteDecision(
+                next_agent="code_agent",
+                rationale="Control del ordenador del usuario."
+                if _is_system_control_request(query)
+                else "Proyecto para el ordenador del usuario.",
+            )
         if (
             any(
                 k in lowered
@@ -390,6 +451,12 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Enviar mensaje"],
                 is_complete=False,
             )
+        if _is_system_control_request(text):
+            return Plan(
+                reasoning="Control del ordenador del usuario: se emite con system_commander.",
+                tasks=["Emitir la orden al nodo local"],
+                is_complete=False,
+            )
         if _is_project_request(text):
             return Plan(
                 reasoning="Proyecto para el ordenador del usuario: se emite con system_commander.",
@@ -470,13 +537,14 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
-        if "system_commander" in tool_names and _is_project_request(text):
+        if "system_commander" in tool_names and (_is_system_control_request(text) or _is_project_request(text)):
+            args = _system_control_args(text) or {"brief": text, "open_with": "cursor"}
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "name": "system_commander",
-                        "args": {"brief": text, "open_with": "cursor"},
+                        "args": args,
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",
                     }

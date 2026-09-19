@@ -28,9 +28,9 @@ jarvis/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
     commands.py        # /api/commands: cola de Command Emission
     app.py
-  commands.py          # Comandos CREATE_PROJECT: contrato, validación y cola
-  tools/system_commander.py  # La tool que emite proyectos hacia el PC del usuario
-local_node.py          # Corre en TU ordenador: sondea la cola, crea archivos, abre Cursor
+  commands.py          # Comandos CREATE_PROJECT / OPEN_URL / RUN_TERMINAL / APP_CONTROL
+  tools/system_commander.py  # La tool que emite órdenes hacia el PC del usuario
+local_node.py          # Corre en TU ordenador: sondea la cola y las ejecuta
   integrations/
     zadarma.py         # REST firmada (Key+Secret) + SMS PBX
     cartesia.py
@@ -148,6 +148,9 @@ Jarvis vive en Render y no puede tocar tu disco. Cuando le pides «Crea una web 
 ```json
 { "action": "CREATE_PROJECT", "path": "./taller-web",
   "files": [{ "name": "index.html", "content": "…" }], "open_with": "cursor" }
+{ "action": "OPEN_URL", "url": "https://github.com" }
+{ "action": "RUN_TERMINAL", "command": "npm run dev", "cwd": "taller-web" }
+{ "action": "APP_CONTROL", "app": "Spotify", "app_action": "open" }
 ```
 
 Un script en tu ordenador, `local_node.py` (solo biblioteca estándar, Python 3.9+), lo recoge y lo ejecuta:
@@ -157,11 +160,11 @@ Un script en tu ordenador, `local_node.py` (solo biblioteca estándar, Python 3.
 JARVIS_NODE_TOKEN=<el mismo que en Render> python local_node.py --url https://<host>
 ```
 
-Ciclo: `pending` → `GET /api/commands/pending` lo entrega y lo marca `delivered` (dos sondeos, o dos PCs, no crean el mismo proyecto dos veces) → el nodo crea carpetas y archivos con `pathlib`, y si `open_with` es `cursor` ejecuta `cursor <ruta>` → `POST /api/commands/{id}/ack` lo deja en `done` o `failed`. `GET /api/commands` muestra el historial y `POST /api/commands` encola a mano para probar el nodo sin el LLM. El sondeo va cada 2 s y, si el backend no responde, el nodo espera cada vez más (hasta 30 s) en vez de martillear.
+Ciclo: `pending` → `GET /api/commands/pending` lo entrega y lo marca `delivered` (dos sondeos, o dos PCs, no duplican) → el nodo ejecuta la acción (`pathlib` + Cursor, `webbrowser.open`, `subprocess.Popen` en segundo plano, o `open -a` / `start` / `taskkill`) → `POST /api/commands/{id}/ack` lo deja en `done` o `failed`. `GET /api/commands` muestra el historial y `POST /api/commands` encola a mano para probar el nodo sin el LLM. El sondeo va cada 2 s y, si el backend no responde, el nodo espera cada vez más (hasta 30 s) en vez de martillear.
 
 Lo que redacta los archivos es el LLM: con function calling pasa `files` completos; si solo llega la instrucción (`brief`), la tool la redacta con el modelo ejecutor, y en modo offline monta un andamio (`index.html`, `css/`, `js/`, `README.md`) para que el circuito entero se pueda probar sin claves.
 
-Seguridad, en dos capas. El backend rechaza al encolar cualquier ruta absoluta, con `..` o con unidad de Windows, y limita el tamaño (60 archivos, 1,5 MB). El nodo vuelve a comprobarlo y **solo escribe dentro de `--root`**, aunque el backend estuviera comprometido. Configura `JARVIS_NODE_TOKEN` en Render y en tu PC: sin él, `/api/commands` queda abierto y cualquiera con la URL podría encolar archivos hacia tu ordenador (el nodo lo avisa al arrancar). Si `cursor` no está en el PATH, los archivos se crean igual y el nodo te dice cómo instalar el comando (Cursor → Paleta → «Shell Command: Install 'cursor' command»).
+Seguridad, en tres capas. El backend rechaza al encolar rutas absolutas o con `..`, URLs que no sean http(s), nombres de app con metacaracteres y comandos que destruirían el sistema (`rm -rf /`, `mkfs`, format de disco). El nodo vuelve a comprobarlo y **CREATE_PROJECT solo escribe dentro de `--root`**. Si `RUN_TERMINAL` implica borrar (`rm`, `del`) o reiniciar (`reboot`, `shutdown`), el nodo imprime una alerta y pide **Y/N en la terminal física**; sin TTY (servicio en segundo plano) se niega en vez de colgarse. Configura `JARVIS_NODE_TOKEN` en Render y en tu PC: sin él, `/api/commands` queda abierto y cualquiera con la URL podría encolar órdenes hacia tu ordenador. Si `cursor` no está en el PATH, los proyectos se crean igual y el nodo te dice cómo instalar el comando (Cursor → Paleta → «Shell Command: Install 'cursor' command»).
 
 ## Producción (Railway / Render)
 

@@ -191,14 +191,12 @@ def test_pending_endpoint_delivers_and_claims_then_ack_closes():
     first = client.get("/api/commands/pending", params={"node": "mi-pc"}).json()
     assert first["count"] == 1 and first["poll_seconds"] == 2
     cmd = first["commands"][0]
-    assert cmd == {
-        "id": cid,
-        "action": "CREATE_PROJECT",
-        "path": "./demo",
-        "files": [{"name": "index.html", "content": "<p>hola</p>"}],
-        "open_with": "cursor",
-        "description": "",
-    }
+    assert cmd["id"] == cid
+    assert cmd["action"] == "CREATE_PROJECT"
+    assert cmd["path"] == "./demo"
+    assert cmd["files"] == [{"name": "index.html", "content": "<p>hola</p>"}]
+    assert cmd["open_with"] == "cursor"
+    assert cmd["url"] == "" and cmd["command"] == "" and cmd["app"] == ""
     assert client.get("/api/commands/pending").json()["count"] == 0
     assert client.get(f"/api/commands/{cid}").json()["status"] == "delivered"
 
@@ -325,6 +323,145 @@ def test_local_node_cli_defaults_and_stdlib_only():
     source = (ROOT / "local_node.py").read_text(encoding="utf-8")
     for forbidden in ("import requests", "import httpx", "from jarvis", "import fastapi"):
         assert forbidden not in source
-    assert 'subprocess.run' in source or "opener([*exe" in source
+    assert "webbrowser" in source and "subprocess.Popen" in source
+    assert "open" in source and "-a" in source
     assert "/api/commands/pending" in source and "/ack" in source
     assert sys.version_info >= (3, 9)
+
+
+# ---------------------------------------------------------------------------
+# Fase 2: OPEN_URL, RUN_TERMINAL, APP_CONTROL y confirmación
+# ---------------------------------------------------------------------------
+
+
+def test_open_url_and_app_control_are_queued_without_touching_disk(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = system_commander.invoke({"action": "OPEN_URL", "url": "https://github.com"})
+    assert "Abriendo https://github.com" in out.split("\n", 1)[0]
+    queued = pending_commands(claim=False)
+    assert queued[0]["action"] == "OPEN_URL" and queued[0]["url"] == "https://github.com"
+    out = system_commander.invoke({"action": "APP_CONTROL", "app": "Spotify", "app_action": "close"})
+    assert "Cerrando Spotify" in out.split("\n", 1)[0]
+
+
+def test_run_terminal_is_queued_and_mentions_confirmation_when_dangerous():
+    cmd = build_command(action="RUN_TERMINAL", command="npm run dev")
+    assert cmd.action == "RUN_TERMINAL" and cmd.command == "npm run dev"
+    out = system_commander.invoke({"action": "RUN_TERMINAL", "command": "rm leftover.txt"})
+    spoken = out.split("\n", 1)[0]
+    assert "confirmación" in spoken.lower() or "Y/N" in spoken
+
+
+def test_payload_rejects_dangerous_schemes_and_catastrophic_commands():
+    from jarvis.commands import needs_confirmation
+
+    with pytest.raises(ValueError):
+        SystemCommand(action="OPEN_URL", url="javascript:alert(1)")
+    with pytest.raises(ValueError):
+        SystemCommand(action="OPEN_URL", url="file:///etc/passwd")
+    with pytest.raises(ValueError):
+        SystemCommand(action="RUN_TERMINAL", command="rm -rf /")
+    with pytest.raises(ValueError):
+        SystemCommand(action="APP_CONTROL", app="Spotify; rm -rf /")
+    assert needs_confirmation("rm leftover.txt") is True
+    assert needs_confirmation("npm run dev") is False
+
+
+def test_local_node_opens_http_urls_and_refuses_the_rest(tmp_path):
+    node = _load_local_node()
+    seen: list[str] = []
+    detail = node.execute({"action": "OPEN_URL", "url": "https://example.com/taller"}, tmp_path, browser=lambda u: seen.append(u) or True)
+    assert seen == ["https://example.com/taller"] and "example.com" in detail
+    for bad in ("javascript:alert(1)", "file:///etc/passwd", "ftp://x", ""):
+        with pytest.raises(node.CommandError):
+            node.execute({"action": "OPEN_URL", "url": bad}, tmp_path, browser=lambda u: True)
+
+
+def test_local_node_runs_terminal_in_the_background(tmp_path):
+    node = _load_local_node()
+    launched: list[dict] = []
+
+    class FakeProc:
+        pid = 4242
+
+    def fake_popen(line, **kwargs):
+        launched.append({"line": line, **kwargs})
+        return FakeProc()
+
+    detail = node.execute(
+        {"action": "RUN_TERMINAL", "command": "npm run dev", "cwd": "taller-web"},
+        tmp_path,
+        popen=fake_popen,
+    )
+    assert launched[0]["line"] == "npm run dev"
+    assert launched[0]["shell"] is True
+    assert launched[0]["start_new_session"] is True
+    assert Path(launched[0]["cwd"]) == (tmp_path / "taller-web").resolve()
+    assert "pid 4242" in detail
+
+
+def test_local_node_asks_before_rm_or_reboot_and_blocks_catastrophic(tmp_path):
+    node = _load_local_node()
+    launched: list[str] = []
+
+    def popen(line, **_kwargs):
+        launched.append(line)
+
+        class P:
+            pid = 1
+
+        return P()
+
+    with pytest.raises(node.CommandError, match="rechazó"):
+        node.execute({"action": "RUN_TERMINAL", "command": "rm leftover.txt"}, tmp_path, popen=popen, ask=lambda _p: "n")
+    assert launched == []
+    detail = node.execute({"action": "RUN_TERMINAL", "command": "rm leftover.txt"}, tmp_path, popen=popen, ask=lambda _p: "Y")
+    assert launched == ["rm leftover.txt"] and "leftover" in detail
+    with pytest.raises(node.CommandError, match="bloqueado"):
+        node.execute({"action": "RUN_TERMINAL", "command": "rm -rf /"}, tmp_path, popen=popen, ask=lambda _p: "Y")
+    with pytest.raises(node.CommandError, match="rechazó"):
+        node.execute({"action": "RUN_TERMINAL", "command": "shutdown now"}, tmp_path, popen=popen, ask=lambda _p: "n")
+    # Sin TTY el nodo no se cuelga: si no hay ask y el comando es peligroso, se niega.
+    # (en pytest stdin no es una terminal física)
+    with pytest.raises(node.CommandError, match="rechazó|terminal"):
+        node.execute({"action": "RUN_TERMINAL", "command": "reboot"}, tmp_path, popen=popen)
+
+
+def test_local_node_opens_and_closes_apps_on_mac_and_windows(tmp_path):
+    node = _load_local_node()
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+
+    node.execute({"action": "APP_CONTROL", "app": "Spotify", "app_action": "open"}, tmp_path, opener=fake_run, system="Darwin")
+    node.execute({"action": "APP_CONTROL", "app": "Spotify", "app_action": "close"}, tmp_path, opener=fake_run, system="Darwin")
+    node.execute({"action": "APP_CONTROL", "app": "Spotify", "app_action": "open"}, tmp_path, opener=fake_run, system="Windows")
+    node.execute({"action": "APP_CONTROL", "app": "WhatsApp", "app_action": "close"}, tmp_path, opener=fake_run, system="Windows")
+    assert calls[0] == ["open", "-a", "Spotify"]
+    assert calls[1][:2] == ["osascript", "-e"] and "Spotify" in calls[1][2]
+    assert calls[2][:3] == ["cmd", "/c", "start"] and calls[2][-1] == "Spotify.exe"
+    assert calls[3][:2] == ["taskkill", "/IM"] and "WhatsApp" in calls[3][2]
+    with pytest.raises(node.CommandError):
+        node.execute({"action": "APP_CONTROL", "app": "x; rm -rf /", "app_action": "open"}, tmp_path, opener=fake_run)
+
+
+def test_voice_can_open_a_url_and_an_app(monkeypatch):
+    result = run_jarvis("Abre https://github.com en el navegador", session_id="cmd-url")
+    assert result.get("active_agent") == "code_agent"
+    assert [t["tool"] for t in result.get("tool_results") or []] == ["system_commander"]
+    queued = pending_commands()
+    assert queued[0]["action"] == "OPEN_URL" and queued[0]["url"].startswith("https://github.com")
+    result = run_jarvis("Abre Spotify", session_id="cmd-app")
+    queued = pending_commands()
+    assert queued[0]["action"] == "APP_CONTROL" and queued[0]["app"].lower() == "spotify"
+    assert queued[0]["app_action"] == "open"
+
+
+def test_api_accepts_the_new_actions_and_still_rejects_junk():
+    client = _client()
+    assert client.post("/api/commands", json={"action": "OPEN_URL", "url": "https://example.com"}).status_code == 201
+    assert client.post("/api/commands", json={"action": "RUN_TERMINAL", "command": "npm run dev"}).status_code == 201
+    assert client.post("/api/commands", json={"action": "APP_CONTROL", "app": "Terminal", "app_action": "open"}).status_code == 201
+    assert client.post("/api/commands", json={"action": "OPEN_URL", "url": "javascript:alert(1)"}).status_code == 422
+    assert client.post("/api/commands", json={"action": "RUN_TERMINAL", "command": "rm -rf /"}).status_code == 422
