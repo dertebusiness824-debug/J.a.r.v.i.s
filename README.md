@@ -27,10 +27,14 @@ jarvis/
   api/
     vapi_routes.py     # POST /webhooks/vapi-llm (OpenAI-compatible)
     commands.py        # /api/commands: cola de Command Emission
+    device_ws.py       # WS /ws/device-control
+  device_bridge.py     # Connection Manager (sockets vivos del PC)
     app.py
   commands.py          # Comandos CREATE_PROJECT / OPEN_URL / RUN_TERMINAL / APP_CONTROL
   tools/system_commander.py  # La tool que emite órdenes hacia el PC del usuario
+  tools/device_control.py    # execute_local_command → WebSocket
 local_node.py          # Corre en TU ordenador: sondea la cola y las ejecuta
+local_client.py        # Corre en TU ordenador: WebSocket en tiempo real
   integrations/
     zadarma.py         # REST firmada (Key+Secret) + SMS PBX
     cartesia.py
@@ -105,7 +109,7 @@ flowchart TD
   S -->|FINISH| END[Respuesta]
 ```
 
-Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`, `POST /webhooks/vapi-llm/chat/completions`. CORS: `allow_origins=["*"]`.
+Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`, `POST /webhooks/vapi-llm/chat/completions`, `WS /ws/device-control`. CORS: `allow_origins=["*"]`.
 
 `VAPI_WEBHOOK_SECRET` autentica a Vapi. Un secreto plano exige `Authorization: Bearer` o `X-Vapi-Secret` en el Custom LLM y en el Server URL. Un valor `whsec_…` (Standard Webhooks) firma `/api/jarvis/vapi-events`; el Custom LLM sigue contestando sin Bearer, porque Vapi no manda esa HMAC en `/webhooks/vapi-llm`. Configúralo en Render (`sync: false` en `render.yaml`), no en el repo.
 
@@ -142,6 +146,18 @@ Cada turno deja rastro en la consola (Render, Railway o local) para saber en qu�
 | `🔁 [CORE LOOP]` | El subgrafo de un especialista no cerró dentro del presupuesto de vueltas y se respondió con el mejor borrador disponible. |
 
 El subgrafo Planificador → Ejecutor → Herramientas tiene un tope de vueltas (`JARVIS_MAX_ITERATIONS`, siempre por debajo de `JARVIS_RECURSION_LIMIT`): si el planificador no cierra, el turno responde con el último borrador en vez de morir con `GraphRecursionError` y dejar a Vapi diciendo «Error interno del sistema».
+
+## Control del PC en tiempo real (WebSocket)
+
+Render no puede abrir la calculadora de tu mesa. `execute_local_command` manda un JSON por `wss://<host>/ws/device-control` y `local_client.py` (en tu PC, `pip install websockets`) lo ejecuta.
+
+```bash
+JARVIS_NODE_TOKEN=<el mismo que en Render> python local_client.py
+# o, si Render no tiene token todavía:
+python local_client.py --url wss://j-a-r-v-i-s-yghr.onrender.com/ws/device-control
+```
+
+Órdenes iniciales: `OPEN_APP` (`calculator` / `notepad`) y `SYSTEM_ALERT` (imprime en la terminal local y suena un beep del sistema). Si el socket se cae, el cliente reintenta solo (1 s → 30 s). El mismo `JARVIS_NODE_TOKEN` de la cola HTTP cierra el WebSocket a extraños. `GET /api/device-control/status` dice cuántos PCs hay en línea.
 
 ## Control del sistema local (Command Emission)
 

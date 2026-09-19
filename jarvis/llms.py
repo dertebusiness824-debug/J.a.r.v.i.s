@@ -151,6 +151,31 @@ def _system_control_args(text: str) -> dict[str, str] | None:
 def _is_system_control_request(text: str) -> bool:
     return _system_control_args(text) is not None
 
+
+def _device_ws_args(text: str) -> dict[str, object] | None:
+    """Órdenes en tiempo real por WebSocket (execute_local_command)."""
+    raw = text or ""
+    lowered = raw.lower()
+    if any(k in lowered for k in ("calculadora", "calculator")) or re.search(
+        r"\bcalc\b", lowered
+    ):
+        return {"command_type": "OPEN_APP", "payload": {"app": "calculator"}}
+    if any(k in lowered for k in ("bloc de notas", "notepad")):
+        return {"command_type": "OPEN_APP", "payload": {"app": "notepad"}}
+    if any(
+        k in lowered
+        for k in (
+            "alerta del sistema",
+            "system alert",
+            "haz un pitido",
+            "reproduce un sonido",
+            "alerta en mi pc",
+            "alerta en mi ordenador",
+        )
+    ):
+        return {"command_type": "SYSTEM_ALERT", "payload": {"message": raw.strip()}}
+    return None
+
 _RESEARCH_PHRASES = (
     "recopilar información",
     "recopila información",
@@ -316,6 +341,13 @@ class OfflineChatModel(BaseChatModel):
                     visited = {part.strip() for part in raw.split(",") if part.strip()}
 
         lowered = query.lower()
+        if _device_ws_args(query):
+            if "general" in visited:
+                return RouteDecision(next_agent="FINISH", rationale="La orden ya se envió por WebSocket.")
+            return RouteDecision(
+                next_agent="general",
+                rationale="Orden en tiempo real al PC (WebSocket).",
+            )
         if _is_system_control_request(query) or _is_project_request(query):
             if "code_agent" in visited:
                 return RouteDecision(next_agent="FINISH", rationale="La orden ya se emitió al nodo local.")
@@ -458,6 +490,12 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Enviar mensaje"],
                 is_complete=False,
             )
+        if _device_ws_args(text):
+            return Plan(
+                reasoning="Orden en tiempo real al PC: se envía por WebSocket.",
+                tasks=["Enviar la orden al PC por WebSocket"],
+                is_complete=False,
+            )
         if _is_system_control_request(text):
             return Plan(
                 reasoning="Control del ordenador del usuario: se emite con system_commander.",
@@ -544,6 +582,20 @@ class OfflineChatModel(BaseChatModel):
                     }
                 ],
             )
+        if "execute_local_command" in tool_names:
+            device = _device_ws_args(text)
+            if device:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "execute_local_command",
+                            "args": device,
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
         if "system_commander" in tool_names and (_is_system_control_request(text) or _is_project_request(text)):
             args = _system_control_args(text) or {"brief": text, "open_with": "cursor"}
             return AIMessage(
