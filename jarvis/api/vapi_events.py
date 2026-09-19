@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
+from jarvis.api.vapi_auth import authorized_vapi_request
 from jarvis.config import get_settings
 from jarvis.db import briefing_inicial
 
@@ -53,8 +55,11 @@ def attach_vapi_events(app: FastAPI) -> None:
 
     @app.post("/api/jarvis/vapi-events", tags=["vapi"], response_model=None)
     async def vapi_server_events(request: Request):
+        raw = await request.body()
+        if not authorized_vapi_request(request, body=raw, strict=True):
+            raise HTTPException(status_code=401, detail="Vapi webhook no autorizado")
         try:
-            data = await request.json()
+            data = json.loads(raw) if raw else {}
         except Exception:
             return Response(status_code=200)
         if not isinstance(data, dict):

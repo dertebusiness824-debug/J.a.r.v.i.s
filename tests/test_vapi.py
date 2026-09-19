@@ -711,6 +711,12 @@ def test_vapi_rejects_bad_secret(monkeypatch):
         json={"messages": [{"role": "user", "content": "¿Cuánto es 2+2?"}]},
     )
     assert ok.status_code == 200
+    header = client.post(
+        "/webhooks/vapi-llm",
+        headers={"X-Vapi-Secret": "s3cret"},
+        json={"messages": [{"role": "user", "content": "¿Cuánto es 2+2?"}]},
+    )
+    assert header.status_code == 200
     get_settings.cache_clear()
 
 

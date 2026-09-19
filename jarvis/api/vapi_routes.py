@@ -17,6 +17,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from jarvis.config import get_settings
+from jarvis.api.vapi_auth import authorized_vapi_request
 from jarvis.api.vapi_events import custom_llm_model
 from jarvis.integrations.cartesia import CartesiaClient
 from jarvis.supervisor import arun_jarvis, astream_jarvis
@@ -657,12 +658,8 @@ async def _sse_from_events(
         yield chunk
 
 
-def _authorized(request: Request) -> bool:
-    secret = get_settings().vapi_webhook_secret
-    if not secret:
-        return True
-    header = request.headers.get("authorization") or ""
-    return header in {f"Bearer {secret}", secret}
+async def _authorized(request: Request) -> bool:
+    return authorized_vapi_request(request, body=await request.body(), strict=False)
 
 
 @router.get("/webhooks/vapi-llm", tags=["vapi"])
@@ -690,7 +687,7 @@ async def _vapi_payload(request: Request) -> dict[str, Any]:
 
 async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
     """Ejecuta el Supervisor y responde JSON OpenAI o SSE."""
-    if not _authorized(request):
+    if not await _authorized(request):
         raise HTTPException(status_code=401, detail="Vapi webhook no autorizado")
     try:
         data = await _vapi_payload(request)
