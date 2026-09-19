@@ -28,6 +28,7 @@ def _offline_env(monkeypatch, tmp_path):
     monkeypatch.delenv("HUNTERIO_API_KEY", raising=False)
     monkeypatch.setenv("VAPI_PUBLIC_KEY", "")
     monkeypatch.setenv("VAPI_ASSISTANT_ID", "")
+    monkeypatch.delenv("VAPI_WEBHOOK_SECRET", raising=False)
     get_settings.cache_clear()
     get_memory.cache_clear()
     reset_engine()
