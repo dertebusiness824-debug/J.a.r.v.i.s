@@ -103,6 +103,8 @@ flowchart TD
 
 Endpoints: `GET /` (HUD Neural Core), `POST /api/jarvis/directive`, `GET /api/jarvis/inbox-status`, `POST /api/jarvis/vapi-events`, `POST /webhooks/whatsapp-local`, `POST /invoke`, `POST /webhooks/vapi-llm`, `POST /webhooks/vapi-llm/chat/completions`. CORS: `allow_origins=["*"]`.
 
+La Terminal del Supervisor del HUD imprime lo que se dice en la llamada de Vapi («Tú: …» / «JARVIS: …») a partir de `vapi.on("message")`: las transcripciones `final` del tipo `transcript` y, si el asistente del panel no las envía, el historial de `conversation-update` (`static/transcripts.js`, sin duplicar entre las dos vías). Vapi solo entrega al navegador los tipos marcados en **Advanced → Client Messages** del asistente; si alguien habla y no llega ninguna línea, la terminal lo dice al colgar y pide activar `transcript` (y `conversation-update`).
+
 El Custom LLM de Vapi responde SSE al estilo OpenAI (`chat.completion.chunk` → `finish_reason: "stop"` → `data: [DONE]`). El turno se cuenta **en voz alta mientras ocurre**, con `astream_jarvis` (`graph.astream_events`, versión `v2`) leyendo los eventos del grafo en tiempo real. Callarse es lo único que Vapi no perdona: un comentario `: keep-alive` mantiene el socket abierto, pero no evita que la llamada se corte por silencio.
 
 1. **Frase puente.** Si el grafo no ha dicho nada en `VAPI_FILLER_DELAY_SECONDS` (0,15 s por defecto), sale un delta con una frase corta al azar («Analizando la directiva…», «Accediendo a los sistemas…»). Vapi la pronuncia al instante, lo que regala dos o tres segundos de proceso. No se repite la del turno anterior de la misma llamada, y si el Supervisor contesta dentro de ese margen no se dice nada: una pregunta rápida no se alarga con relleno.
