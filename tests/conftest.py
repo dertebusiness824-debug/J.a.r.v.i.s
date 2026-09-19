@@ -33,6 +33,9 @@ def _offline_env(monkeypatch, tmp_path):
     get_memory.cache_clear()
     reset_engine()
     ZadarmaClient.inbound_calls.clear()
+    from jarvis.device_bridge import manager as device_manager
+
+    device_manager.reset()
     agent_core_mod._CORE_GRAPH = None
     agents_base.reset_core_subgraph()
     supervisor_mod._SUPERVISOR_GRAPH = None

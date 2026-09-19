@@ -31,6 +31,7 @@ from jarvis.integrations.zadarma import INBOUND_EVENTS, ZadarmaClient
 from jarvis.supervisor import compile_supervisor_graph, graph_mermaid, run_jarvis
 from jarvis.api.whatsapp_local import attach_whatsapp_local_webhook
 from jarvis.api.vapi_events import attach_vapi_events
+from jarvis.api.device_ws import attach_device_control
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -167,6 +168,7 @@ def create_app() -> FastAPI:
 
     attach_whatsapp_local_webhook(app)
     attach_vapi_events(app)
+    attach_device_control(app)
 
     @app.get("/webhooks/zadarma", tags=["webhooks"])
     async def zadarma_verify(zd_echo: str | None = Query(default=None)) -> Response:
