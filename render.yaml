@@ -15,7 +15,10 @@ services:
       - key: VAPI_PUBLIC_KEY
         sync: false
       - key: VAPI_ASSISTANT_ID
-        sync: false
+        # Identificador público del asistente del panel de Vapi (no es un secreto:
+        # el HUD lo recibe por /voice/config). Fijado aquí para que el despliegue
+        # arranque siempre el asistente correcto.
+        value: 7f5e8df0-c8b6-4fb1-97f7-8a3c24364b1b
       - key: VAPI_WEBHOOK_SECRET
         sync: false
       - key: CARTESIA_API_KEY

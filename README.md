@@ -36,7 +36,7 @@ jarvis/db/             # SQLite bandeja MensajeEntrante
 jarvis/tools/email_reader.py  # IMAP → bandeja
 ```
 
-En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm` (Vapi añade `/chat/completions`). Voz = Cartesia. El JSON listo está en `GET /voice/vapi-assistant`.
+En el dashboard de Vapi: Custom LLM = `https://<host>/webhooks/vapi-llm` (Vapi añade `/chat/completions`). El JSON de partida está en `GET /voice/vapi-assistant`. El asistente guardado allí es la fuente de verdad del modelo, la voz y el prompt: con `VAPI_ASSISTANT_ID` configurado, el botón HABLAR del HUD arranca ese asistente por ID y sin overrides (`GET /voice/config` se lo pasa al navegador; no hay ningún ID escrito en el frontend). Sin ID, o si el del panel no arranca, el HUD monta un asistente efímero con el Custom LLM de este servidor.
 
 ## Arranque
 
