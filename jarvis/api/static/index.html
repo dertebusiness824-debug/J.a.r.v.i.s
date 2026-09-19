@@ -653,9 +653,20 @@
           transcriber,
           voice,
         };
-        let call = await vapi.start(assistant);
-        if (!call && voiceCfg.vapi_assistant_id) {
-          call = await vapi.start(voiceCfg.vapi_assistant_id, { model: llmModel, transcriber });
+        // El asistente guardado en el panel de Vapi (VAPI_ASSISTANT_ID) manda: ahí
+        // viven el modelo, la voz y el prompt. Se arranca por ID y sin overrides,
+        // porque cualquier override desde aquí volvería a pisar esa configuración.
+        // El asistente efímero de arriba queda solo como respaldo sin ID o si el
+        // panel no arranca (ID borrado, asistente sin publicar).
+        let call = null;
+        if (voiceCfg.vapi_assistant_id) {
+          call = await vapi.start(voiceCfg.vapi_assistant_id);
+          if (!call) {
+            log("SISTEMA: el asistente del panel no arrancó; uso el asistente efímero del HUD.");
+          }
+        }
+        if (!call) {
+          call = await vapi.start(assistant);
         }
         if (!call) {
           throw new Error(lastVapiError || "Vapi no inició la llamada.");

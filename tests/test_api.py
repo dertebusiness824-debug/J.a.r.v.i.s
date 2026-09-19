@@ -109,7 +109,11 @@ def test_health_and_docs():
     assert "isolate" in hud.text
     assert "metadataSendMode" in hud.text
     assert "@vapi-ai/web@2.6.3" in hud.text
-    assert "vapi.start(assistant)" in hud.text
+    # El asistente del panel de Vapi manda (modelo, voz y prompt viven allí): se
+    # arranca por ID, sin overrides, y el efímero del HUD es solo el respaldo.
+    assert "vapi.start(voiceCfg.vapi_assistant_id)" in hud.text
+    assert "vapi.start(voiceCfg.vapi_assistant_id, {" not in hud.text
+    assert hud.text.index("vapi.start(voiceCfg.vapi_assistant_id)") < hud.text.index("vapi.start(assistant)")
     assert "if (!call" in hud.text
     assert "await vapi.stop()" in hud.text
     assert "lastVapiError" in hud.text
@@ -131,6 +135,26 @@ def test_health_and_docs():
     # Contadores de la bandeja en cajas de panel de mandos.
     assert hud.text.count("rounded-sm border border-cyan-500/30 bg-cyan-900/20") == 3
     assert hud.text.count("font-mono text-base font-black text-cyan-300") == 3
+
+
+def test_the_frontend_never_hardcodes_the_vapi_assistant(monkeypatch):
+    """El ID del asistente solo vive en VAPI_ASSISTANT_ID y llega al HUD por /voice/config."""
+    import re
+
+    from jarvis.config import get_settings
+
+    uuid_re = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+    client = TestClient(create_app())
+    for path in ("/", "/static/hud.js"):
+        assert not uuid_re.search(client.get(path).text), f"{path} lleva un UUID escrito a mano"
+
+    monkeypatch.setenv("VAPI_ASSISTANT_ID", "7f5e8df0-c8b6-4fb1-97f7-8a3c24364b1b")
+    get_settings.cache_clear()
+    try:
+        body = TestClient(create_app()).get("/voice/config").json()
+        assert body["vapi_assistant_id"] == "7f5e8df0-c8b6-4fb1-97f7-8a3c24364b1b"
+    finally:
+        get_settings.cache_clear()
 
 
 def test_holo_core_module_is_served_and_self_contained():
