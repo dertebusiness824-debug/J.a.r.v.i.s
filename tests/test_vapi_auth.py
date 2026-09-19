@@ -56,6 +56,24 @@ def test_standard_webhooks_accepts_valid_hmac():
     )
 
 
+def test_standard_webhooks_official_vector():
+    """Vector público de Standard Webhooks / Svix (no es un secreto de Jarvis)."""
+    secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+    body = b'{"test": 2432232314}'
+    assert (
+        standard_webhook_signature(secret, "msg_p5jXN8AQM9LWM0D4loKWxJek", "1614265330", body)
+        == "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+    )
+    assert verify_standard_webhooks(
+        secret,
+        msg_id="msg_p5jXN8AQM9LWM0D4loKWxJek",
+        timestamp="1614265330",
+        signatures="v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=",
+        body=body,
+        now=1614265330,
+    )
+
+
 def test_standard_webhooks_rejects_bad_hmac_and_old_timestamp():
     headers = _signed_headers(TEST_WHSEC)
     assert not verify_standard_webhooks(
