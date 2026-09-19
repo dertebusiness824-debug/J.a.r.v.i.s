@@ -25,3 +25,24 @@ class MensajeEntrante(Base):
     contenido: Mapped[str] = mapped_column(Text, default="")
     leido: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     fecha_recepcion: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+
+class ComandoSistema(Base):
+    """Comando emitido por el agente para que lo ejecute un nodo local (Command Emission).
+
+    El backend en Render no toca el disco del usuario: apila aquí el JSON del comando
+    y `local_node.py` lo recoge por polling, lo ejecuta y confirma el resultado.
+    """
+
+    __tablename__ = "comandos_sistema"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    action: Mapped[str] = mapped_column(String(32), index=True)
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    origin: Mapped[str] = mapped_column(String(64), default="")
+    node: Mapped[str] = mapped_column(String(64), default="")
+    result: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

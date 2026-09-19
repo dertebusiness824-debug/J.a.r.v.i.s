@@ -75,6 +75,28 @@ _MATH_RE = re.compile(
 
 _GIT_RE = re.compile(r"\bgit\b")
 
+_PROJECT_NOUNS = (
+    "proyecto",
+    "una web",
+    "página web",
+    "pagina web",
+    "sitio web",
+    "landing",
+    "html",
+    "cursor",
+    "mi ordenador",
+    "mi pc",
+    "mi equipo",
+    "en el ide",
+)
+_PROJECT_VERBS = ("crea", "crear", "genera", "generar", "haz", "hazme", "monta", "construye", "prepara", "abre", "ábre")
+
+
+def _is_project_request(text: str) -> bool:
+    """«Crea una web HTML para un taller» → proyecto para el ordenador del usuario."""
+    lowered = (text or "").lower()
+    return any(n in lowered for n in _PROJECT_NOUNS) and any(v in lowered for v in _PROJECT_VERBS)
+
 _RESEARCH_PHRASES = (
     "recopilar información",
     "recopila información",
@@ -240,6 +262,8 @@ class OfflineChatModel(BaseChatModel):
                     visited = {part.strip() for part in raw.split(",") if part.strip()}
 
         lowered = query.lower()
+        if _is_project_request(query) and "code_agent" not in visited:
+            return RouteDecision(next_agent="code_agent", rationale="Proyecto para el ordenador del usuario.")
         if (
             any(
                 k in lowered
@@ -308,6 +332,8 @@ class OfflineChatModel(BaseChatModel):
                     tasks=["Reintentar la última herramienta con argumentos corregidos"],
                     is_complete=False,
                 )
+            if getattr(tool_msgs[-1], "name", "") == "system_commander":
+                last = last.splitlines()[0]
             return Plan(
                 reasoning="Herramienta ejecutada. Se entrega el resultado.",
                 tasks=[],
@@ -364,6 +390,12 @@ class OfflineChatModel(BaseChatModel):
                 tasks=["Enviar mensaje"],
                 is_complete=False,
             )
+        if _is_project_request(text):
+            return Plan(
+                reasoning="Proyecto para el ordenador del usuario: se emite con system_commander.",
+                tasks=["Emitir el proyecto al nodo local"],
+                is_complete=False,
+            )
         if any(
             k in lowered
             for k in (
@@ -404,7 +436,11 @@ class OfflineChatModel(BaseChatModel):
         tool_names = {getattr(t, "name", "") for t in self.bound_tools}
         tool_msgs = [m for m in since_last_human(messages) if isinstance(m, ToolMessage)]
         if tool_msgs:
-            return AIMessage(content=str(tool_msgs[-1].content))
+            content = str(tool_msgs[-1].content)
+            # Las tools que hablan ponen la frase en la primera línea y el JSON debajo.
+            if getattr(tool_msgs[-1], "name", "") == "system_commander":
+                content = content.splitlines()[0]
+            return AIMessage(content=content)
 
         text = last_user_text(messages)
         lowered = text.lower()
@@ -429,6 +465,18 @@ class OfflineChatModel(BaseChatModel):
                     {
                         "name": "get_current_time",
                         "args": {"timezone_name": "UTC"},
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "system_commander" in tool_names and _is_project_request(text):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "system_commander",
+                        "args": {"brief": text, "open_with": "cursor"},
                         "id": f"call_{uuid.uuid4().hex[:8]}",
                         "type": "tool_call",
                     }
