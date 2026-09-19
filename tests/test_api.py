@@ -60,26 +60,54 @@ def test_health_and_docs():
     assert "max-h-[22vh]" in hud.text
     assert "flex-1" in hud.text
     assert "env(safe-area-inset-bottom)" in hud.text
-    # Pistas de circuito en dos esquinas: la misma figura, una girada 180°.
-    assert hud.text.count("text-cyan-500/20") == 2
+    # Pistas de circuito en dos esquinas: un solo dibujo (#circuitTraces) usado por la
+    # pista tenue y por su copia energizada, y la de abajo a la derecha girada 180°.
+    assert 'id="circuitTraces"' in hud.text
+    assert hud.text.count('<use href="#circuitTraces" />') == 2
+    assert hud.text.count('<use href="#circuitTraces" data-hud="energy" class="circuit-energy" />') == 2
+    assert hud.text.count('data-hud="circuit"') == 2
     assert "left-0 top-0" in hud.text
     assert "bottom-0 right-0" in hud.text and "rotate-180" in hud.text
-    assert hud.text.count('stroke-dasharray="5 4"') == 2
+    assert hud.text.count('stroke-dasharray="5 4"') == 1
+    # Conectores reactivos: cuatro trazas del borde al núcleo que crecen con
+    # stroke-dashoffset (pathLength=1 → dasharray 1, offset de 1 a 0 con el alcance).
+    assert 'data-hud="connectors"' in hud.text
+    assert hud.text.count('class="connector" pathLength="1"') == 4
+    for corner in ("tl", "tr", "bl", "br"):
+        assert f'data-corner="{corner}"' in hud.text
+    assert "stroke-dasharray: 1;" in hud.text and "stroke-dashoffset: 1;" in hud.text
+    assert "--reach" in hud.text
+    # Cromatología dinámica: paleta por humor en variables, con los colores de Tailwind.
+    assert 'data-mood="idle"' in hud.text
+    assert "#app[data-mood=\"listening\"]" in hud.text
+    assert "#app[data-mood=\"thinking\"]" in hud.text
+    assert "#app[data-mood=\"speaking\"]" in hud.text
+    assert "--hud-a: 8 145 178" in hud.text  # cyan-600 en reposo
+    assert "--hud-a: 34 211 238" in hud.text  # cyan-400 escuchando
+    assert "--hud-a: 217 70 239" in hud.text and "--hud-b: 168 85 247" in hud.text  # fuchsia/purple pensando
+    assert "--hud-a: 45 212 191" in hud.text and "--hud-c: 165 243 252" in hud.text  # teal-400/cyan-200 hablando
+    assert "rgb(var(--hud-a) / 0.5)" in hud.text
+    assert "border-cyan-500/50" not in hud.text and "border-blue-500/30" not in hud.text
+    # Red neuronal de fondo, pintada por hud.js con la misma paleta.
+    assert 'data-hud="field"' in hud.text
     # Núcleo holográfico: texto ancho con brillo y al menos tres anillos concéntricos,
-    # discontinuos y sólidos, en cian y azul.
+    # discontinuos y sólidos, coloreados por el humor.
     assert 'id="holoCore"' in hud.text
     assert 'data-voice="idle"' in hud.text and 'data-researching="0"' in hud.text
     assert "h-72 w-72 md:h-96 md:w-96" in hud.text
+    assert "@media (max-height: 640px)" in hud.text and "#app #holoCore { height: 15rem; width: 15rem; }" in hud.text
     assert 'id="coreLabel"' in hud.text
     assert "font-hud text-xl font-bold tracking-widest text-white drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" in hud.text
-    assert "border-2 border-dashed border-cyan-500/50" in hud.text
-    assert "border border-dashed border-blue-500/30" in hud.text
-    assert hud.text.count("rounded-full border border-cyan-500/50") >= 1
-    assert hud.text.count("rounded-full border border-blue-500/30") >= 1
+    assert "ring-spin hud-ring-a absolute inset-0 rounded-full border-2 border-dashed" in hud.text
+    assert "ring-spin hud-ring-b absolute inset-0 rounded-full border border-dashed" in hud.text
     assert hud.text.count("rounded-full border") >= 4
     assert 'data-hud="globe"' in hud.text and 'data-hud="net"' in hud.text
     assert 'data-hud="ring-outer"' in hud.text and 'data-hud="ring-mid"' in hud.text
     assert 'id="corePing"' in hud.text
+    # Ondas expansivas rápidas solo cuando Jarvis habla.
+    assert hud.text.count('class="core-wave') == 3
+    assert "@keyframes wave" in hud.text
+    assert '[data-mood="speaking"] .core-wave { animation-play-state: running; }' in hud.text
     assert "active:scale-95" in hud.text
     assert "orange" not in hud.text
     assert "emerald" not in hud.text
@@ -100,11 +128,15 @@ def test_health_and_docs():
     assert "hud.setResearching(isResearching())" in hud.text
     assert "ACCEDIENDO A LA RED GLOBAL" in hud.text
     assert 'id="researchBanner"' in hud.text
-    # Voz: los estados y el volumen de Vapi llegan al núcleo.
-    assert "createHoloCore(document.getElementById(\"holoCore\"))" in hud.text
+    # Voz: los estados y el volumen de Vapi llegan al núcleo, y el núcleo publica el
+    # humor en la página entera (stage), no solo en sí mismo.
+    assert 'createHoloCore(document.getElementById("holoCore"), { stage: app })' in hud.text
     assert "hud.setVoice(callStatus)" in hud.text
     assert 'vapi.on("volume-level"' in hud.text
     assert "hud.setVolume(level)" in hud.text
+    # Escuchando, el núcleo palpita con la voz del usuario (AnalyserNode del micrófono).
+    assert "createAnalyser()" in hud.text and "getByteTimeDomainData" in hud.text
+    assert "startMicMeter()" in hud.text and "stopMicMeter()" in hud.text
     assert "speech-start" in hud.text
     assert "isolate" in hud.text
     assert "metadataSendMode" in hud.text
@@ -122,19 +154,32 @@ def test_health_and_docs():
     assert "Requiere interacción manual para desbloquear canales de audio" in hud.text
     assert "startVapiCall" in hud.text
     assert "auto: true" in hud.text
-    # El texto del núcleo va en su propio span (los anillos no se pisan al cambiar de estado).
+    # Terminal limpia: el dock nace recogido (opacity-0 translate-y-full
+    # pointer-events-none), el núcleo lo alterna y la voz vive en su propia pastilla.
+    assert 'id="dock"' in hud.text
+    assert "translate-y-full flex-col gap-2" in hud.text and "opacity-0 pointer-events-none" in hud.text
+    assert "let isTerminalVisible = false;" in hud.text
+    assert 'talkBtn.addEventListener("click", () => setTerminalVisible(!isTerminalVisible));' in hud.text
+    assert 'DOCK_HIDDEN = ["opacity-0", "translate-y-full", "pointer-events-none"]' in hud.text
+    assert 'aria-controls="dock"' in hud.text and "aria-expanded" in hud.text
+    assert 'id="dockHint"' in hud.text and 'id="dockUnread"' in hud.text
+    assert 'id="voiceBtn"' in hud.text
+    assert 'voiceBtn.addEventListener("click"' in hud.text
+    assert "voiceBtn.textContent = text;" in hud.text
+    # El texto del núcleo no cambia con la voz: siempre J.A.R.V.I.S.
     assert "talkBtn.textContent" not in hud.text
+    assert "coreLabel.textContent = CORE_LABEL;" in hud.text
     # Prompt de consola con cursor parpadeante justo detrás del log.
     assert 'id="terminalCaret"' in hud.text
-    assert "animate-caret inline-block h-4 w-2 bg-cyan-400" in hud.text
+    assert "animate-caret hud-caret inline-block h-4 w-2" in hud.text
     assert "@keyframes caret" in hud.text
     assert "supervisor@jarvis:~$" in hud.text
     assert 'id="terminalText"' in hud.text
     assert "terminalText.textContent = terminalMessages.join" in hud.text
     assert "terminal.textContent" not in hud.text
-    # Contadores de la bandeja en cajas de panel de mandos.
-    assert hud.text.count("rounded-sm border border-cyan-500/30 bg-cyan-900/20") == 3
-    assert hud.text.count("font-mono text-base font-black text-cyan-300") == 3
+    # Contadores de la bandeja en cajas de panel de mandos, del color del humor.
+    assert hud.text.count("hud-edge hud-tint flex flex-col items-center rounded-sm border px-2 py-1") == 3
+    assert hud.text.count("hud-ink font-mono text-base font-black") == 3
 
 
 def test_the_frontend_never_hardcodes_the_vapi_assistant(monkeypatch):
@@ -181,6 +226,26 @@ def test_holo_core_module_is_served_and_self_contained():
     assert "label.style.textShadow" in js
     # Sin datos de volumen (voz del navegador) el núcleo sigue latiendo al hablar.
     assert "state.voice === \"speaking\"" in js
+    # Humor: de voz + investigación sale idle/listening/thinking/speaking, publicado en
+    # el escenario; la paleta se lee de las variables CSS y se interpola para los canvas.
+    assert "function moodOf()" in js
+    for mood in ("idle", "listening", "thinking", "speaking"):
+        assert f'"{mood}"' in js
+    assert "stage.dataset.mood = next" in js
+    assert 'getPropertyValue("--hud-a")' in js and 'getPropertyValue("--hud-c")' in js
+    assert "function mixRgb(" in js
+    assert "rgba(pal." in js and "rgba(56, 189, 248" not in js
+    # Circuitos reactivos: el alcance mueve el stroke-dashoffset de las trazas y la
+    # geometría de los conectores se calcula en píxeles con la posición del núcleo.
+    assert "function targetReach(" in js
+    assert "el.style.strokeDashoffset = offset" in js
+    assert 'stage.style.setProperty("--reach"' in js
+    assert "function layoutConnectors(" in js
+    assert "ResizeObserver" in js
+    # La red neuronal cambia de ritmo con el humor: reposo lento, procesamiento rápido.
+    assert "function tempo()" in js
+    assert 'case "thinking":' in js
+    assert 'data-hud="field"' in js
 
 
 def test_directive_and_inbox_status():
