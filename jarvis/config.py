@@ -78,7 +78,10 @@ class Settings(BaseSettings):
     vapi_filler_delay_seconds: float = 0.15
     # Silencio máximo en llamada: si el grafo no da señales en este tiempo se dice
     # algo igualmente. Un comentario SSE no cuenta como voz para Vapi.
-    vapi_idle_speech_seconds: float = 9.0
+    # El TTS de Vapi se vacía en ~1–2 s sin texto nuevo. Un keep-alive SSE no
+    # cuenta: hay que decir algo. 1.5 s tapa el hueco sin llenar la llamada de
+    # «Sigo en ello» si el ejecutor ya está soltando tokens.
+    vapi_idle_speech_seconds: float = 1.5
 
     cartesia_api_key: str | None = None
     cartesia_voice_id: str | None = None

@@ -150,6 +150,44 @@ def test_astream_jarvis_reports_tools_before_the_final_state():
     assert "Auriculares Jarvis" in extract_answer(events[-1]["state"])
 
 
+def test_spoken_llm_stream_includes_nested_specialist_tokens():
+    """El ejecutor dentro de research_agent no se llama `executor` en el metadata."""
+    from jarvis.supervisor import _is_spoken_llm_stream
+
+    assert _is_spoken_llm_stream(
+        {"event": "on_chat_model_stream", "metadata": {"langgraph_node": "research_agent"}}
+    )
+    assert _is_spoken_llm_stream(
+        {"event": "on_chat_model_stream", "metadata": {"langgraph_node": "executor"}}
+    )
+    assert not _is_spoken_llm_stream(
+        {"event": "on_chat_model_stream", "metadata": {"langgraph_node": "planner"}}
+    )
+    assert not _is_spoken_llm_stream(
+        {"event": "on_chat_model_stream", "metadata": {"langgraph_node": "supervisor"}}
+    )
+
+
+def test_specialist_forwards_the_parent_stream_config(monkeypatch):
+    """Sin los callbacks del padre, astream_events no ve tokens del subgrafo."""
+    from jarvis.agents.base import make_specialist_node
+
+    seen: dict = {}
+
+    class _Graph:
+        def invoke(self, _payload, config=None):
+            seen["config"] = config
+            return {"final_answer": "Listo.", "messages": [], "task_complete": True, "plan": [], "tool_results": []}
+
+    monkeypatch.setattr("jarvis.agents.base.core_subgraph", lambda: _Graph())
+    node = make_specialist_node("general", "prompt")
+    parent = {"callbacks": ["keep-streaming"], "configurable": {"thread_id": "voice"}}
+    node({"user_query": "hola", "messages": [], "delegation_log": []}, parent)
+    assert seen["config"]["callbacks"] == ["keep-streaming"]
+    assert seen["config"]["configurable"]["thread_id"] == "voice"
+    assert seen["config"]["recursion_limit"]
+
+
 def test_astream_jarvis_only_streams_tokens_the_user_can_hear(monkeypatch):
     """El planificador devuelve JSON estructurado: sus tokens no se pueden pronunciar."""
     from langchain_core.messages import AIMessage, AIMessageChunk

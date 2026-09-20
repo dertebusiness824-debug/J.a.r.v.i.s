@@ -6,6 +6,7 @@ import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
 from jarvis.agent_core import compile_core_graph, extract_answer, initial_state
@@ -44,7 +45,7 @@ def _failed_report(payload: AgentState, exc: BaseException) -> AgentState:
 def make_specialist_node(name: str, prompt: str):
     """Nodo LangGraph: recibe contexto del Supervisor, ejecuta el subgrafo y devuelve el resultado."""
 
-    def _run(state: AgentState) -> Command[Literal["supervisor"]]:
+    def _run(state: AgentState, config: RunnableConfig = None) -> Command[Literal["supervisor"]]:  # type: ignore[assignment]
         query = state.get("user_query") or ""
         prior = list(state.get("delegation_log") or [])
         prior_ctx = "\n".join(f"- {hop.get('agent')}: {hop.get('result')}" for hop in prior)
@@ -59,8 +60,13 @@ def make_specialist_node(name: str, prompt: str):
             from jarvis.hud_live import mark_researching
 
             mark_researching(ttl=60)
+        # Hay que heredar callbacks/config del padre: si el subgrafo se invoca
+        # a ciegas, `astream_events` no ve los tokens del ejecutor y Vapi se
+        # queda sin audio (buffer underrun).
+        child_config = dict(config or {})
+        child_config["recursion_limit"] = get_settings().jarvis_recursion_limit
         try:
-            output = core_subgraph().invoke(payload, {"recursion_limit": get_settings().jarvis_recursion_limit})
+            output = core_subgraph().invoke(payload, child_config)
         except Exception as exc:
             # Un especialista roto no puede tumbar el turno de voz. `CancelledError`
             # no es `Exception`: si Vapi cuelga, la cancelación sigue subiendo.

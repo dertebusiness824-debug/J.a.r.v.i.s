@@ -232,10 +232,11 @@ async def astream_jarvis(query: str, *, session_id: str = "cli") -> AsyncIterato
 
     - `tool`: una herramienta arrancó. Es el aviso de que empieza la espera larga
       (Tavily, Hunter, Shopify), así que hay algo que contar en voz alta.
-    - `token`: el ejecutor está escribiendo. Solo salen los del nodo `executor`:
-      el planificador y el enrutado devuelven JSON estructurado, que no se puede
-      pronunciar. Requiere un modelo con streaming (`streaming=True`); si no lo
-      hay, este evento simplemente no aparece.
+    - `token`: el ejecutor está escribiendo. El planificador, el Supervisor y
+      `retrieve` se silencian (JSON estructurado, no se puede pronunciar). El
+      ejecutor anidado en un especialista llega como `research_agent` (o el
+      que sea), no como `executor`: esos tokens sí salen. Requiere un modelo
+      con streaming (`streaming=True`); si no lo hay, este evento no aparece.
     - `state`: estado final del grafo, del que sale la frase definitiva.
     """
     graph = get_supervisor_graph()
@@ -247,7 +248,7 @@ async def astream_jarvis(query: str, *, session_id: str = "cli") -> AsyncIterato
         if kind == "on_tool_start":
             yield {"kind": "tool", "tool": str(event.get("name") or "")}
         elif kind == "on_chat_model_stream":
-            if (event.get("metadata") or {}).get("langgraph_node") != "executor":
+            if not _is_spoken_llm_stream(event):
                 continue
             text = _chunk_text((event.get("data") or {}).get("chunk"))
             if text:
@@ -264,6 +265,18 @@ async def astream_jarvis(query: str, *, session_id: str = "cli") -> AsyncIterato
     if answer:
         await asyncio.to_thread(get_memory().remember, f"Q: {query}\nA: {answer}")
     yield {"kind": "state", "state": final_state}
+
+
+# El planificador y el Supervisor van con `disable_streaming=True` y, si
+# algo se cuela, TokenGate tira el JSON. El ejecutor anidado dentro de un
+# especialista llega con `langgraph_node=research_agent` (no `executor`):
+# hay que dejar pasar esos tokens o el TTS de Vapi se queda sin audio.
+_MUTED_STREAM_NODES = frozenset({"planner", "supervisor", "retrieve"})
+
+
+def _is_spoken_llm_stream(event: dict[str, Any]) -> bool:
+    node = str((event.get("metadata") or {}).get("langgraph_node") or "")
+    return node not in _MUTED_STREAM_NODES
 
 
 def _chunk_text(chunk: Any) -> str:
