@@ -135,7 +135,7 @@ Cada turno deja rastro en la consola (Render, Railway o local) para saber en qu�
 
 | Marca | Significado |
 | --- | --- |
-| `🔥 [VAPI INCOMING]` | Llegó la petición: `call`, `stream` y el mensaje del usuario. Si no aparece, Vapi no está llamando a este servicio (revisa la URL del Custom LLM). Sale como `WARNING` con el payload completo cuando el JSON no trae ningún turno de usuario. |
+| `🔥 [VAPI INCOMING]` | Llegó un turno del usuario: `call`, `stream` y el mensaje. Los eventos de control (`speech-update`, `status-update`, …) no dejan esta línea: se acusan con `200 {}` y no tocan el grafo. Si no aparece en una frase tuya, Vapi no está llamando al Custom LLM (revisa la URL). |
 | `🗣️ [VAPI FILLER]` | Frase puente o de espera que se dijo mientras el grafo trabajaba, y a qué segundo salió. Si nunca aparece, el grafo está contestando dentro del margen y no hace falta. |
 | `🛰️ [VAPI NARRATION]` | Arrancó una herramienta lenta y se contó en voz alta. Si sale y luego hay un hueco largo hasta `OUTGOING`, ahí está la herramienta que se atasca. |
 | `🧠 [VAPI SUPERVISOR]` | El grafo terminó: especialista elegido y herramientas usadas. |
