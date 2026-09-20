@@ -45,7 +45,7 @@ def _failed_report(payload: AgentState, exc: BaseException) -> AgentState:
 def make_specialist_node(name: str, prompt: str):
     """Nodo LangGraph: recibe contexto del Supervisor, ejecuta el subgrafo y devuelve el resultado."""
 
-    def _run(state: AgentState, config: RunnableConfig | None = None) -> Command[Literal["supervisor"]]:
+    def _run(state: AgentState, config: RunnableConfig = None) -> Command[Literal["supervisor"]]:  # type: ignore[assignment]
         query = state.get("user_query") or ""
         prior = list(state.get("delegation_log") or [])
         prior_ctx = "\n".join(f"- {hop.get('agent')}: {hop.get('result')}" for hop in prior)

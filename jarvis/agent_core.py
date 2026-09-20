@@ -173,7 +173,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     return updates
 
 
-def executor_node(state: AgentState, config: RunnableConfig | None = None) -> dict[str, Any]:
+def executor_node(state: AgentState, config: RunnableConfig = None) -> dict[str, Any]:  # type: ignore[assignment]
     """Nodo de ejecución: Llama 3.3 70B free vía OpenRouter (o modelo offline) con function calling."""
     agent_name = state.get("active_agent") or "general"
     tools = tools_by_agent(agent_name)
@@ -239,19 +239,43 @@ def _stream_chat(
             iterator = stream(messages, config=config) if config is not None else stream(messages)
         except TypeError:
             iterator = stream(messages)
+        complete: AIMessage | None = None
         try:
             for chunk in iterator:
+                # BaseChatModel.stream() sin `_stream` suelta el AIMessage entero
+                # (tool_calls incluidos). Recortarlo a un chunk de solo texto
+                # es lo que dejaba al ejecutor offline sin herramientas.
+                if isinstance(chunk, AIMessage) and not isinstance(chunk, AIMessageChunk):
+                    if complete is None:
+                        complete = chunk
+                    else:
+                        complete = AIMessage(
+                            content=f"{complete.content}{chunk.content}",
+                            tool_calls=list(getattr(chunk, "tool_calls", None) or complete.tool_calls),
+                            additional_kwargs=dict(
+                                getattr(chunk, "additional_kwargs", None)
+                                or complete.additional_kwargs
+                                or {}
+                            ),
+                            id=getattr(chunk, "id", None) or complete.id,
+                        )
+                    continue
                 piece = (
                     chunk
                     if isinstance(chunk, AIMessageChunk)
-                    else AIMessageChunk(content=getattr(chunk, "content", "") or "")
+                    else AIMessageChunk(
+                        content=getattr(chunk, "content", "") or "",
+                        additional_kwargs=dict(getattr(chunk, "additional_kwargs", None) or {}),
+                    )
                 )
                 assembled = piece if assembled is None else assembled + piece
         except TypeError:
             return _invoke_chat(model, messages, config)
-        if assembled is None:
-            return AIMessage(content="")
-        return _as_ai_message(assembled)
+        if assembled is not None:
+            return _as_ai_message(assembled)
+        if complete is not None:
+            return _as_ai_message(complete)
+        return AIMessage(content="")
     return _invoke_chat(model, messages, config)
 
 

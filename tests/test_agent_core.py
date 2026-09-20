@@ -67,6 +67,28 @@ def test_executor_streams_tokens_with_the_parent_config(monkeypatch):
     assert result["messages"][0].content == "Hecho, maestro."
 
 
+def test_executor_keeps_tool_calls_when_stream_yields_a_full_message(monkeypatch):
+    """OfflineChatModel.stream() emite un AIMessage: hay que conservar tool_calls."""
+    from jarvis.agent_core import executor_node
+
+    class _OfflineStyle:
+        def bind_tools(self, _tools):
+            return self
+
+        def stream(self, _messages, config=None):
+            yield AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "calculate_expression", "args": {"expression": "17*24"}, "id": "c1"}
+                ],
+            )
+
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _OfflineStyle())
+    result = executor_node({"messages": [HumanMessage(content="¿Cuánto es 17 * 24?")]})
+    calls = getattr(result["messages"][0], "tool_calls", None) or []
+    assert calls and calls[0]["name"] == "calculate_expression"
+
+
 def test_core_graph_compiles():
     graph = compile_core_graph()
     assert graph is not None
