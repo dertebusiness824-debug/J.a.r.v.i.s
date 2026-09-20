@@ -323,6 +323,11 @@ ALL_TOOLS = [
 
 
 def tools_by_agent(name: str) -> list:
+    """Lista de tools de acción de un especialista (Tavily, Hunter, Shopify, …).
+
+    El ejecutor las vincula con `bind_tools` (`bind_executor_tools`) y el
+    nodo `tools` las corre con `ToolNode`.
+    """
     if name == "research_agent":
         from jarvis.agents.research_agent import RESEARCH_TOOLS
 

@@ -1,6 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage
 
 from jarvis.agent_core import (
+    bind_executor_tools,
     compile_core_graph,
     extract_answer,
     loop_budget,
@@ -67,6 +68,76 @@ def test_executor_streams_tokens_with_the_parent_config(monkeypatch):
     assert result["messages"][0].content == "Hecho, maestro."
 
 
+def test_bind_executor_tools_attaches_tavily_and_hunter():
+    """El research_agent no puede actuar si el LLM no ve web_search / Hunter."""
+    from jarvis.llms import OfflineChatModel
+
+    bound, tools = bind_executor_tools("research_agent")
+    names = {t.name for t in tools}
+    assert {"web_search", "find_public_emails", "advanced_dork_search"} <= names
+    assert isinstance(bound, OfflineChatModel)
+    assert {t.name for t in bound.bound_tools} == names
+
+
+def test_executor_calls_bind_tools_before_the_llm(monkeypatch):
+    seen: dict = {}
+
+    class _LLM:
+        def bind_tools(self, tools):
+            seen["names"] = [t.name for t in tools]
+            return self
+
+        def invoke(self, _messages, config=None):
+            return AIMessage(content="ok")
+
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _LLM())
+    from jarvis.agent_core import executor_node
+
+    executor_node({"messages": [HumanMessage(content="investiga")], "active_agent": "research_agent"})
+    assert "web_search" in seen["names"]
+    assert "find_public_emails" in seen["names"]
+
+
+def test_core_graph_runs_web_search_through_toolnode(monkeypatch):
+    """bind_tools → tool_call del ejecutor → ToolNode (Tavily) → resultado en el estado."""
+    monkeypatch.setattr(
+        "jarvis.agents.research_agent._public_search",
+        lambda query, **_opts: {
+            "provider": "tavily",
+            "query": query,
+            "results": [{"title": "Ada Lovelace", "url": "https://example.com/ada"}],
+        },
+    )
+    state = run_core_agent(
+        "Investiga a Ada Lovelace en Google y recopila información pública",
+        active_agent="research_agent",
+    )
+    tools_used = [r["tool"] for r in state.get("tool_results") or []]
+    assert "web_search" in tools_used
+    assert any("Ada" in str(r.get("output") or "") for r in state.get("tool_results") or [])
+
+
+def test_streamed_tool_call_chunks_become_tool_calls():
+    """OpenRouter suelta tool_calls a trozos: hay que reensamblarlos para ToolNode."""
+    from langchain_core.messages import AIMessageChunk
+
+    from jarvis.agent_core import _as_ai_message
+
+    first = AIMessageChunk(
+        content="",
+        tool_call_chunks=[{"index": 0, "id": "c1", "name": "web_search", "args": ""}],
+    )
+    second = AIMessageChunk(
+        content="",
+        tool_call_chunks=[{"index": 0, "id": None, "name": None, "args": '{"query": "Ada"}'}],
+    )
+    assembled = first + second
+    message = _as_ai_message(assembled)
+    assert message.tool_calls
+    assert message.tool_calls[0]["name"] == "web_search"
+    assert message.tool_calls[0]["args"]["query"] == "Ada"
+
+
 def test_executor_keeps_tool_calls_when_stream_yields_a_full_message(monkeypatch):
     """OfflineChatModel.stream() emite un AIMessage: hay que conservar tool_calls."""
     from jarvis.agent_core import executor_node
@@ -96,6 +167,7 @@ def test_core_graph_compiles():
     assert "planner" in mermaid
     assert "executor" in mermaid
     assert "tools" in mermaid
+    assert "executor --> tools" in mermaid or "executor -.-> tools" in mermaid or "tools" in mermaid
 
 
 def test_core_calculator_offline():

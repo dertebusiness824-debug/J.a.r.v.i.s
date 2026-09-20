@@ -47,7 +47,9 @@ No uses Markdown en final_answer: será leído en voz alta.
 """
 
 EXECUTOR_PROMPT = """Eres el Ejecutor de Jarvis (function calling).
-Ejecuta SOLO las tareas del plan usando las herramientas disponibles.
+Las herramientas de acción ya están vinculadas a este modelo con bind_tools
+(Tavily/web_search, Hunter, Shopify, WhatsApp, calculadora, etc., según el especialista).
+Ejecuta SOLO las tareas del plan LLAMANDO esas tools. No describas que las vas a usar: invócalas.
 Si no necesitas herramientas, responde con el resultado final en texto.
 Nunca inventes salidas de herramientas.
 """
