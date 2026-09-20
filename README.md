@@ -5,7 +5,7 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 ## Stack
 
 - **Orquestación:** LangGraph `StateGraph` (flujos cíclicos)
-- **Planificación y ejecución:** OpenRouter (`ChatOpenAI` + `https://openrouter.ai/api/v1`), modelo `nousresearch/hermes-3-llama-3.1-70b`. Anthropic sigue disponible si `PLANNER_PROVIDER=anthropic`.
+- **Planificación y ejecución:** OpenRouter (`ChatOpenAI` + `https://openrouter.ai/api/v1`), modelo gratuito con tool calling `meta-llama/llama-3.3-70b-instruct:free`. Anthropic sigue disponible si `PLANNER_PROVIDER=anthropic`.
 - **Memoria:** ChromaDB local (fallback in-memory)
 - **API:** FastAPI asíncrono
 - **WhatsApp:** puente local `whatsapp-web.js` (QR con tu número personal)

@@ -173,7 +173,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
 
 
 def executor_node(state: AgentState) -> dict[str, Any]:
-    """Nodo de ejecución: Hermes 3 vía OpenRouter (o modelo offline) con function calling."""
+    """Nodo de ejecución: Llama 3.3 70B free vía OpenRouter (o modelo offline) con function calling."""
     agent_name = state.get("active_agent") or "general"
     tools = tools_by_agent(agent_name)
     model = get_executor_model().bind_tools(tools)
