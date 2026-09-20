@@ -1,4 +1,4 @@
-from jarvis.api.vapi_routes import extract_user_turn, openai_completion
+from jarvis.api.vapi_routes import extract_user_turn, is_vapi_noise_event, openai_completion
 from jarvis.prompts import JARVIS_PERSONA, SUPERVISOR_PROMPT
 from jarvis.voice import narrate_tool, strip_markdown, to_spoken
 
@@ -85,6 +85,17 @@ def test_extract_vapi_payload_shapes():
     )
     assert wrapped == "Stock de Shopify"
     assert session2 == "vapi"
+
+    assert is_vapi_noise_event({"message": {"type": "speech-update", "status": "started"}})
+    assert is_vapi_noise_event({"message": {"type": "status-update", "status": "in-progress"}})
+    assert is_vapi_noise_event({"message": {"type": "transcript", "role": "user", "transcript": "hola"}})
+    assert is_vapi_noise_event({"message": {"type": "metadata"}})
+    assert not is_vapi_noise_event(
+        {"messages": [{"role": "user", "content": "Hola Jarvis"}]}
+    )
+    assert not is_vapi_noise_event(
+        {"message": {"messages": [{"role": "user", "content": "Stock de Shopify"}]}}
+    )
 
 
 def test_openai_completion_shape():

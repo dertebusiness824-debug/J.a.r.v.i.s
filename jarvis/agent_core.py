@@ -173,11 +173,23 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     return updates
 
 
+def bind_executor_tools(agent_name: str) -> tuple[Any, list]:
+    """`ChatOpenAI` (u offline) + las tools de acción de ese especialista.
+
+    El `bind_tools` va aquí, antes de hablar con el modelo: sin él el LLM solo
+    genera texto y Tavily, Hunter, Shopify, etc. no existen para el grafo.
+    """
+    tools = list(tools_by_agent(agent_name) or [])
+    llm = get_executor_model()
+    if not tools:
+        return llm, tools
+    return llm.bind_tools(tools), tools
+
+
 def executor_node(state: AgentState, config: RunnableConfig = None) -> dict[str, Any]:  # type: ignore[assignment]
     """Nodo de ejecución: Llama 3.3 70B free vía OpenRouter (o modelo offline) con function calling."""
     agent_name = state.get("active_agent") or "general"
-    tools = tools_by_agent(agent_name)
-    model = get_executor_model().bind_tools(tools)
+    model, _tools = bind_executor_tools(agent_name)
     plan = state.get("plan") or []
     plan_text = "\n".join(f"- {t.get('description')}" for t in plan) or "(sin plan)"
     messages = [
@@ -194,12 +206,32 @@ def executor_node(state: AgentState, config: RunnableConfig = None) -> dict[str,
     return {"messages": [response], "hops": int(state.get("hops") or 0) + 1}
 
 
+def _tool_calls_from_message(message: Any) -> list[dict[str, Any]]:
+    """Normaliza `tool_calls` de un AIMessage o de chunks de streaming."""
+    raw = list(getattr(message, "tool_calls", None) or [])
+    calls: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "")
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            call_id = str(item.get("id") or "")
+        else:
+            name = str(getattr(item, "name", "") or "")
+            args = getattr(item, "args", None)
+            args = args if isinstance(args, dict) else {}
+            call_id = str(getattr(item, "id", "") or "")
+        if not name:
+            continue
+        calls.append({"name": name, "args": dict(args), "id": call_id or uuid.uuid4().hex[:8], "type": "tool_call"})
+    return calls
+
+
 def _as_ai_message(message: Any) -> AIMessage:
     if isinstance(message, AIMessage) and not isinstance(message, AIMessageChunk):
         return message
     return AIMessage(
         content=getattr(message, "content", "") or "",
-        tool_calls=list(getattr(message, "tool_calls", None) or []),
+        tool_calls=_tool_calls_from_message(message),
         additional_kwargs=dict(getattr(message, "additional_kwargs", None) or {}),
         id=getattr(message, "id", None),
     )
@@ -279,11 +311,12 @@ def _stream_chat(
     return _invoke_chat(model, messages, config)
 
 
-def tools_node(state: AgentState) -> dict[str, Any]:
+def tools_node(state: AgentState, config: RunnableConfig = None) -> dict[str, Any]:  # type: ignore[assignment]
     """Ejecuta tool calls y registra resultados tipados en el estado."""
     agent_name = state.get("active_agent") or "general"
-    tools = tools_by_agent(agent_name)
-    raw = ToolNode(tools).invoke(state)
+    tools = list(tools_by_agent(agent_name) or [])
+    # `config=None` lo rechaza LangGraph (`Missing required config key`).
+    raw = ToolNode(tools).invoke(state, config) if config is not None else ToolNode(tools).invoke(state)
     new_messages = raw["messages"]
 
     last_ai = next(
@@ -432,6 +465,7 @@ if __name__ == "__main__":
 # Referencia para el ejecutor general: las tools core deben permanecer importables.
 __all__ = [
     "CORE_TOOLS",
+    "bind_executor_tools",
     "compile_core_graph",
     "run_core_agent",
     "extract_answer",

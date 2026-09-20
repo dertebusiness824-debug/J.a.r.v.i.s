@@ -92,21 +92,60 @@ def _sse_content(line: str) -> str:
     return str(chunk["choices"][0]["delta"].get("content") or "")
 
 
+def _post_sse(path: str, payload: dict, *, headers: dict | None = None) -> tuple[int, str, str]:
+    """POST al Custom LLM: body SSE y content-type. Los eventos de ruido no llegan aquí."""
+    client = TestClient(create_app())
+    with client.stream("POST", path, json=payload, headers=headers or {}) as res:
+        body = "".join(res.iter_text())
+        return res.status_code, body, res.headers.get("content-type") or ""
+
+
+def _spoken_sse(body: str) -> str:
+    return "".join(_sse_content(line) for line in body.splitlines())
+
+
 def test_vapi_empty_payload_ready():
     client = TestClient(create_app())
     res = client.post("/webhooks/vapi-llm", json={})
     assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == "Sistema listo."
+    assert res.json() == {}
     probe = client.get("/webhooks/vapi-llm")
     assert probe.status_code == 200
     assert probe.json()["status"] == "ok"
 
 
-def test_vapi_custom_llm_calculator_is_spoken():
+def test_vapi_control_events_are_acked_without_langgraph(monkeypatch, caplog):
+    """speech-update / status-update no son un turno: 200 vacío, sin Supervisor."""
+
+    async def _must_not_run(*_args, **_kwargs):
+        raise AssertionError("LangGraph no debe correr en un evento de control")
+
+    async def _must_not_stream(*_args, **_kwargs):
+        raise AssertionError("LangGraph no debe correr en un evento de control")
+        yield {}  # pragma: no cover
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _must_not_stream)
+    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _must_not_run)
+    caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
     client = TestClient(create_app())
-    res = client.post(
+    for payload in (
+        {"message": {"type": "speech-update", "status": "started", "role": "assistant"}},
+        {"message": {"type": "status-update", "status": "in-progress"}},
+        {"message": {"type": "transcript", "role": "user", "transcript": "hola", "transcriptType": "partial"}},
+        {"message": {"type": "metadata", "metadata": {"foo": 1}}},
+        {"type": "conversation-update"},
+    ):
+        res = client.post("/webhooks/vapi-llm", json=payload)
+        assert res.status_code == 200, payload
+        assert res.json() == {}
+    assert not any("[VAPI INCOMING]" in rec.getMessage() for rec in caplog.records)
+    assert not any(rec.levelno >= logging.WARNING for rec in caplog.records)
+
+
+def test_vapi_custom_llm_calculator_is_spoken():
+    status, body, ctype = _post_sse(
         "/webhooks/vapi-llm",
-        json={
+        {
             "call": {"id": "voice-calc"},
             "messages": [
                 {"role": "system", "content": "vapi"},
@@ -114,26 +153,28 @@ def test_vapi_custom_llm_calculator_is_spoken():
             ],
         },
     )
-    assert res.status_code == 200
-    spoken = res.json()["choices"][0]["message"]["content"]
+    assert status == 200
+    assert "text/event-stream" in ctype
+    spoken = _spoken_sse(body)
     assert "408" in spoken
     assert "*" not in spoken
     assert "```" not in spoken
+    assert "data: [DONE]" in body
 
 
 def test_vapi_server_url_shopify_payload():
-    client = TestClient(create_app())
-    res = client.post(
+    status, body, ctype = _post_sse(
         "/webhooks/vapi-llm",
-        json={
+        {
             "message": {
                 "messages": [{"role": "user", "content": "Lista los productos de Shopify"}]
             },
             "call": {"id": "voice-shop"},
         },
     )
-    assert res.status_code == 200
-    spoken = res.json()["choices"][0]["message"]["content"]
+    assert status == 200
+    assert "text/event-stream" in ctype
+    spoken = _spoken_sse(body)
     assert "Inventario revisado" in spoken
     assert "{" not in spoken
 
@@ -437,13 +478,17 @@ def test_unsaid_tail_only_returns_what_is_missing():
     assert _unsaid_tail("Hola", "Archivo actualizado.") == "Archivo actualizado."
 
 
-def test_vapi_json_path_never_speaks_a_filler(monkeypatch):
-    """Sin stream no hay dos fases: una frase puente sería la respuesta entera."""
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(0.3))
-    client = TestClient(create_app())
-    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
-    assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == "Listo tras 0.3 segundos."
+def test_vapi_webhook_path_always_streams(monkeypatch):
+    """El Custom LLM ya no tiene camino JSON: Vapi solo traga SSE."""
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _instant_stream("Listo."))
+    status, body, ctype = _post_sse(
+        "/webhooks/vapi-llm",
+        {"messages": [{"role": "user", "content": "hola"}]},
+    )
+    assert status == 200
+    assert "text/event-stream" in ctype
+    assert _spoken_sse(body) == "Listo."
+    assert "data: [DONE]" in body
 
 
 def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
@@ -467,19 +512,21 @@ def test_vapi_sse_answers_before_vapi_times_out(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_vapi_json_path_also_answers_on_timeout(monkeypatch):
+def test_vapi_webhook_path_also_answers_on_timeout(monkeypatch):
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(3))
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(3))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
-    client = TestClient(create_app())
-    res = client.post(
+    status, body, ctype = _post_sse(
         "/webhooks/vapi-llm",
-        json={"messages": [{"role": "user", "content": "hola"}]},
+        {"messages": [{"role": "user", "content": "hola"}]},
     )
-    assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == SLOW_REPLY
+    assert status == 200
+    assert "text/event-stream" in ctype
+    assert _spoken_sse(body).endswith(SLOW_REPLY)
+    assert "data: [DONE]" in body
     get_settings.cache_clear()
 
 
@@ -528,15 +575,19 @@ def test_vapi_sse_does_not_mistake_a_tool_timeout_for_slowness(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_vapi_json_path_speaks_the_error(monkeypatch):
+def test_vapi_webhook_path_speaks_the_error(monkeypatch):
     monkeypatch.setattr(
-        "jarvis.api.vapi_routes.arun_jarvis",
-        _broken_supervisor(RuntimeError("LangGraph roto")),
+        "jarvis.api.vapi_routes.astream_jarvis",
+        _broken_stream(RuntimeError("LangGraph roto")),
     )
-    client = TestClient(create_app())
-    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
-    assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == ERROR_REPLY
+    status, body, ctype = _post_sse(
+        "/webhooks/vapi-llm",
+        {"messages": [{"role": "user", "content": "hola"}]},
+    )
+    assert status == 200
+    assert "text/event-stream" in ctype
+    assert _spoken_sse(body) == ERROR_REPLY
+    assert "data: [DONE]" in body
 
 
 def test_vapi_logs_the_incoming_message_and_the_spoken_reply(caplog):
@@ -563,18 +614,14 @@ def test_vapi_logs_the_incoming_message_and_the_spoken_reply(caplog):
     assert supervisor and "general" in supervisor[0]
 
 
-def test_vapi_logs_a_payload_without_user_message(caplog):
+def test_vapi_payload_without_user_message_is_acked_silently(caplog):
     caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
     client = TestClient(create_app())
     res = client.post("/webhooks/vapi-llm", json={"call": {"id": "voice-empty"}})
     assert res.status_code == 200
-    warnings = [
-        rec.getMessage()
-        for rec in caplog.records
-        if rec.levelno >= logging.WARNING and "[VAPI INCOMING]" in rec.getMessage()
-    ]
-    assert warnings and "sin mensaje de usuario" in warnings[0]
-    assert "voice-empty" in warnings[0]
+    assert res.json() == {}
+    assert not any("[VAPI INCOMING]" in rec.getMessage() for rec in caplog.records)
+    assert not any(rec.levelno >= logging.WARNING for rec in caplog.records)
 
 
 def test_vapi_logs_a_body_that_is_not_json(caplog):
@@ -586,21 +633,24 @@ def test_vapi_logs_a_body_that_is_not_json(caplog):
         headers={"content-type": "application/json"},
     )
     assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == "Sistema listo."
+    assert res.json() == {}
     assert any("cuerpo no-JSON" in rec.getMessage() for rec in caplog.records)
 
 
 def test_vapi_logs_the_timeout_before_answering(monkeypatch, caplog):
     monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "1")
-    monkeypatch.setattr("jarvis.api.vapi_routes.arun_jarvis", _slow_supervisor(3))
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.2")
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _slow_stream(3))
     from jarvis.config import get_settings
 
     get_settings.cache_clear()
     caplog.set_level(logging.INFO, logger="jarvis.api.vapi_routes")
-    client = TestClient(create_app())
-    res = client.post("/webhooks/vapi-llm", json={"messages": [{"role": "user", "content": "hola"}]})
-    assert res.status_code == 200
-    assert res.json()["choices"][0]["message"]["content"] == SLOW_REPLY
+    status, body, _ctype = _post_sse(
+        "/webhooks/vapi-llm",
+        {"messages": [{"role": "user", "content": "hola"}]},
+    )
+    assert status == 200
+    assert _spoken_sse(body).endswith(SLOW_REPLY)
     assert any("[VAPI TIMEOUT]" in rec.getMessage() for rec in caplog.records)
     get_settings.cache_clear()
 
@@ -616,10 +666,13 @@ def test_vapi_sse_deltas_rebuild_the_sentence_verbatim():
 
 def test_vapi_reads_the_last_message_even_without_role():
     """Payload OpenAI mínimo: `messages[-1].content` sin rol declarado."""
-    client = TestClient(create_app())
-    res = client.post("/webhooks/vapi-llm", json={"messages": [{"content": "¿Cuánto es 2 + 2?"}]})
-    assert res.status_code == 200
-    assert "4" in res.json()["choices"][0]["message"]["content"]
+    status, body, ctype = _post_sse(
+        "/webhooks/vapi-llm",
+        {"messages": [{"content": "¿Cuánto es 2 + 2?"}]},
+    )
+    assert status == 200
+    assert "text/event-stream" in ctype
+    assert "4" in _spoken_sse(body)
 
 
 def test_vapi_chat_completions_get_probe():
@@ -631,13 +684,13 @@ def test_vapi_chat_completions_get_probe():
 
 
 def test_vapi_extracts_call_messages():
-    client = TestClient(create_app())
-    res = client.post(
+    status, body, ctype = _post_sse(
         "/webhooks/vapi-llm",
-        json={"call": {"id": "voice-call-msgs", "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]}},
+        {"call": {"id": "voice-call-msgs", "messages": [{"role": "user", "content": "¿Cuánto es 2 + 2?"}]}},
     )
-    assert res.status_code == 200
-    assert "4" in res.json()["choices"][0]["message"]["content"]
+    assert status == 200
+    assert "text/event-stream" in ctype
+    assert "4" in _spoken_sse(body)
 
 
 def test_vapi_stream_sse():
