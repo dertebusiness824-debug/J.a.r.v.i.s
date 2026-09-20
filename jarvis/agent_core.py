@@ -11,7 +11,8 @@ import logging
 import uuid
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -172,7 +173,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     return updates
 
 
-def executor_node(state: AgentState) -> dict[str, Any]:
+def executor_node(state: AgentState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Nodo de ejecución: Llama 3.3 70B free vía OpenRouter (o modelo offline) con function calling."""
     agent_name = state.get("active_agent") or "general"
     tools = tools_by_agent(agent_name)
@@ -185,10 +186,73 @@ def executor_node(state: AgentState) -> dict[str, Any]:
         SystemMessage(content=f"Plan vigente:\n{plan_text}"),
         *(state.get("messages") or []),
     ]
-    response = model.invoke(messages)
+    # `config` lleva los callbacks de `astream_events`: sin ellos `.stream()`
+    # abre un run huérfano y Vapi no ve ningún token (TTS en underrun).
+    response = _stream_chat(model, messages, config)
     # El ejecutor está en los dos ciclos del grafo (con el planificador y con las
     # herramientas), así que contar sus visitas acota cualquier vuelta infinita.
     return {"messages": [response], "hops": int(state.get("hops") or 0) + 1}
+
+
+def _as_ai_message(message: Any) -> AIMessage:
+    if isinstance(message, AIMessage) and not isinstance(message, AIMessageChunk):
+        return message
+    return AIMessage(
+        content=getattr(message, "content", "") or "",
+        tool_calls=list(getattr(message, "tool_calls", None) or []),
+        additional_kwargs=dict(getattr(message, "additional_kwargs", None) or {}),
+        id=getattr(message, "id", None),
+    )
+
+
+def _invoke_chat(model: Any, messages: list, config: RunnableConfig | None) -> AIMessage:
+    invoke = getattr(model, "invoke", None)
+    if not callable(invoke):
+        return AIMessage(content="")
+    try:
+        result = invoke(messages, config=config) if config is not None else invoke(messages)
+    except TypeError:
+        result = invoke(messages)
+    return _as_ai_message(result)
+
+
+def _stream_chat(
+    model: Any,
+    messages: list,
+    config: RunnableConfig | None = None,
+) -> AIMessage:
+    """Consume el LLM token a token para que `astream_events` los vea al vuelo.
+
+    `invoke()` con `streaming=True` a veces espera el mensaje entero antes de
+    notificar; `.stream()` emite cada chunk. El `config` del nodo tiene que
+    viajar con la llamada: LangGraph suele correr el ejecutor en un hilo y
+    ahí no llegan los callbacks por contextvar. Sin ellos Vapi no recibe
+    deltas y el TTS se vacía.
+
+    Los dobles de test solo implementan `invoke`: si no hay `stream` usable,
+    se cae ahí sin romper el turno.
+    """
+    stream = getattr(model, "stream", None)
+    if callable(stream):
+        assembled: AIMessageChunk | None = None
+        try:
+            iterator = stream(messages, config=config) if config is not None else stream(messages)
+        except TypeError:
+            iterator = stream(messages)
+        try:
+            for chunk in iterator:
+                piece = (
+                    chunk
+                    if isinstance(chunk, AIMessageChunk)
+                    else AIMessageChunk(content=getattr(chunk, "content", "") or "")
+                )
+                assembled = piece if assembled is None else assembled + piece
+        except TypeError:
+            return _invoke_chat(model, messages, config)
+        if assembled is None:
+            return AIMessage(content="")
+        return _as_ai_message(assembled)
+    return _invoke_chat(model, messages, config)
 
 
 def tools_node(state: AgentState) -> dict[str, Any]:

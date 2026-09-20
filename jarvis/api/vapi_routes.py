@@ -325,7 +325,7 @@ class TokenGate:
     y habla la frase final, que sí pasa por `to_spoken`.
     """
 
-    LOOKAHEAD = 16
+    LOOKAHEAD = 6
     BLOCKED_STARTS = ("{", "[", "```", "<")
 
     def __init__(self) -> None:

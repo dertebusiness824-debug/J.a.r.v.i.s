@@ -39,6 +39,34 @@ def test_the_persona_leads_every_prompt_that_writes_for_the_user(monkeypatch):
     assert seen and seen[0].content == JARVIS_PERSONA
 
 
+def test_executor_streams_tokens_with_the_parent_config(monkeypatch):
+    """Sin los callbacks del padre, `.stream()` no llega a `astream_events` ni a Vapi."""
+    from langchain_core.messages import AIMessageChunk
+
+    from jarvis.agent_core import executor_node
+    from jarvis.prompts import JARVIS_PERSONA
+
+    seen: dict = {}
+
+    class _Streamer:
+        def bind_tools(self, _tools):
+            return self
+
+        def stream(self, messages, config=None):
+            seen["config"] = config
+            seen["messages"] = messages
+            yield AIMessageChunk(content="Hecho, ")
+            yield AIMessageChunk(content="maestro.")
+
+    monkeypatch.setattr("jarvis.agent_core.get_executor_model", lambda: _Streamer())
+    parent = {"callbacks": ["keep-streaming"], "configurable": {"thread_id": "voice"}}
+    result = executor_node({"messages": [HumanMessage(content="hola")]}, parent)
+    assert seen["config"]["callbacks"] == ["keep-streaming"]
+    assert seen["config"]["configurable"]["thread_id"] == "voice"
+    assert seen["messages"][0].content == JARVIS_PERSONA
+    assert result["messages"][0].content == "Hecho, maestro."
+
+
 def test_core_graph_compiles():
     graph = compile_core_graph()
     assert graph is not None
