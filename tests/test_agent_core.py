@@ -150,7 +150,7 @@ def test_the_planner_and_router_never_stream_their_structured_output(monkeypatch
         executor = get_executor_model()
         assert executor.streaming is True, "el ejecutor sí habla en directo para Vapi"
         assert executor.disable_streaming is False
-        assert "hermes-3-llama-3.1-70b" in (executor.model_name or "")
+        assert "llama-3.3-70b-instruct:free" in (executor.model_name or "")
         base = str(getattr(executor, "openai_api_base", None) or getattr(executor, "base_url", "") or "")
         assert "openrouter.ai/api/v1" in base
         from jarvis.tools import tools_by_agent

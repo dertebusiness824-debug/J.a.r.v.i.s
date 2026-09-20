@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     planner_provider: str = Field(default="openai")
-    planner_model: str = Field(default="nousresearch/hermes-3-llama-3.1-70b")
-    executor_model: str = Field(default="nousresearch/hermes-3-llama-3.1-70b")
+    planner_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
+    executor_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
 
     jarvis_offline: bool = False
 

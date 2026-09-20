@@ -809,7 +809,17 @@ def heuristic_route(text: str) -> RouteDecision:
 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-HERMES_3 = "nousresearch/hermes-3-llama-3.1-70b"
+# Gratuito y con function calling. `openrouter/free` es alias válido en su catálogo.
+OPENROUTER_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+_OPENROUTER_LEGACY_MODELS = frozenset(
+    {
+        "gpt-4o",
+        "gpt-4o-mini",
+        "o1",
+        "o1-preview",
+        "nousresearch/hermes-3-llama-3.1-70b",
+    }
+)
 
 
 def _openrouter_api_key() -> str | None:
@@ -818,11 +828,22 @@ def _openrouter_api_key() -> str | None:
 
 
 def _openrouter_model(configured: str | None) -> str:
-    """Slug de OpenRouter (`vendor/model`). Un `gpt-4o` residual del .env no cuenta."""
+    """Slug de OpenRouter. Un gpt-4o / Hermes residual del .env no cuenta."""
     name = (configured or "").strip()
-    if "/" in name:
+    if name in {"openrouter/free", "free"}:
+        return OPENROUTER_FREE_MODEL
+    if name and name not in _OPENROUTER_LEGACY_MODELS and "/" in name:
         return name
-    return HERMES_3
+    return OPENROUTER_FREE_MODEL
+
+
+def _openrouter_headers() -> dict[str, str]:
+    """OpenRouter exige Referer y título; sin ellos a veces responde 401/403."""
+    settings = get_settings()
+    return {
+        "HTTP-Referer": (settings.jarvis_public_url or "https://j-a-r-v-i-s-yghr.onrender.com").rstrip("/"),
+        "X-Title": "J.A.R.V.I.S.",
+    }
 
 
 def _chat_openrouter(*, model: str, temperature: float, **kwargs: Any) -> Any:
@@ -836,6 +857,7 @@ def _chat_openrouter(*, model: str, temperature: float, **kwargs: Any) -> Any:
         model=_openrouter_model(model),
         temperature=temperature,
         max_tokens=1500,
+        default_headers=_openrouter_headers(),
         **kwargs,
     )
 
