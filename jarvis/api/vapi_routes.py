@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from jarvis.config import get_settings
@@ -67,6 +67,48 @@ _PHRASE_MEMORY = 256
 
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
+
+
+# Eventos de control / metadatos del Server URL. Si Vapi los manda al Custom LLM
+# (mala URL o metadataSendMode) no son un turno: un "Sistema listo." síncrono
+# rompe la llamada. Se contestan con 200 vacío y no se toca LangGraph.
+_NOISE_EVENT_TYPES = frozenset(
+    {
+        "speech-update",
+        "status-update",
+        "transcript",
+        "conversation-update",
+        "hang",
+        "end-of-call-report",
+        "user-interrupted",
+        "language-changed",
+        "metadata",
+        "model-output",
+        "voice-input",
+        "recording",
+        "transfer-update",
+    }
+)
+# Server URL que sí pide una respuesta hablada o de herramienta.
+_TURN_EVENT_TYPES = frozenset({"assistant-request", "function-call", "tool-calls"})
+
+
+def vapi_message_type(payload: dict[str, Any]) -> str:
+    """`message.type` de Vapi; vacío en el Custom LLM al estilo OpenAI."""
+    nested = payload.get("message")
+    if isinstance(nested, dict) and nested.get("type"):
+        return str(nested["type"])
+    return str(payload.get("type") or "")
+
+
+def is_vapi_noise_event(payload: dict[str, Any]) -> bool:
+    """True si el JSON es un evento de control/metadatos, no un turno del usuario."""
+    tipo = vapi_message_type(payload)
+    if tipo in _NOISE_EVENT_TYPES:
+        return True
+    if tipo and tipo not in _TURN_EVENT_TYPES:
+        return True
+    return False
 
 
 def extract_user_turn(payload: dict[str, Any]) -> tuple[str, str, bool]:
@@ -685,46 +727,51 @@ async def _vapi_payload(request: Request) -> dict[str, Any]:
     return {}
 
 
-async def _vapi_llm_reply(request: Request, *, force_stream: bool = False):
-    """Ejecuta el Supervisor y responde JSON OpenAI o SSE."""
+def _empty_vapi_ack() -> JSONResponse:
+    """200 vacío: Vapi no debe oír 'Sistema listo.' en un speech-update."""
+    return JSONResponse(content={}, status_code=200)
+
+
+async def _vapi_llm_reply(request: Request, *, force_stream: bool = True):
+    """Custom LLM: ignora el ruido de Vapi; el turno del usuario sale en SSE."""
     if not await _authorized(request):
         raise HTTPException(status_code=401, detail="Vapi webhook no autorizado")
     try:
         data = await _vapi_payload(request)
-        user_text, session_id, stream = extract_user_turn(data)
+        if is_vapi_noise_event(data):
+            return _empty_vapi_ack()
+        user_text, session_id, _requested_stream = extract_user_turn(data)
         if not user_text:
             user_text = last_user_content(data)
-        stream = force_stream or stream
-        _log_incoming(data, user_text, session_id, stream=stream)
+        if not user_text:
+            # Sin turno no se inventa una frase: eso era lo que cortaba la llamada
+            # cuando llegaba un status-update o un POST vacío.
+            return _empty_vapi_ack()
+        _log_incoming(data, user_text, session_id, stream=True)
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        if stream:
-            return StreamingResponse(
-                _sse_supervisor_reply(user_text, session_id, completion_id),
-                media_type="text/event-stream",
-                headers=_sse_headers(),
-            )
-        spoken = await _spoken_within_budget(user_text, session_id)
-        return openai_completion(spoken, completion_id=completion_id)
+        return StreamingResponse(
+            _sse_supervisor_reply(user_text, session_id, completion_id),
+            media_type="text/event-stream",
+            headers=_sse_headers(),
+        )
     except HTTPException:
         raise
     except Exception:
         logger.exception("Error en Vapi Custom LLM")
-        if force_stream:
-            return StreamingResponse(
-                _sse_openai_chunks(
-                    ERROR_REPLY,
-                    completion_id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
-                ),
-                media_type="text/event-stream",
-                headers=_sse_headers(),
-            )
-        return openai_completion(ERROR_REPLY)
+        return StreamingResponse(
+            _sse_openai_chunks(
+                ERROR_REPLY,
+                completion_id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+            ),
+            media_type="text/event-stream",
+            headers=_sse_headers(),
+        )
 
 
 @router.post("/webhooks/vapi-llm", tags=["vapi"])
 async def vapi_custom_llm(request: Request):
-    """Custom LLM de Vapi: payload OpenAI o message.messages → Supervisor LangGraph."""
-    return await _vapi_llm_reply(request, force_stream=False)
+    """Custom LLM de Vapi: solo el turno del usuario; siempre SSE."""
+    return await _vapi_llm_reply(request, force_stream=True)
 
 
 @router.get("/webhooks/vapi-llm/chat/completions", tags=["vapi"])
