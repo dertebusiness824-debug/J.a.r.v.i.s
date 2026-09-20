@@ -467,6 +467,62 @@ def test_vapi_drops_the_graph_when_the_call_hangs_up(monkeypatch):
     assert marks == ["cancelado"]
 
 
+def test_vapi_keeps_the_socket_during_a_pause_between_tokens(monkeypatch):
+    """Tras una tool el LLM se calla un instante: keep-alive, no [DONE] a medias."""
+    monkeypatch.setenv("VAPI_KEEPALIVE_SECONDS", "0.1")
+    monkeypatch.setenv("VAPI_IDLE_SPEECH_SECONDS", "0.5")
+    monkeypatch.setenv("VAPI_RESPONSE_TIMEOUT_SECONDS", "10")
+
+    async def _stream(text, session_id=None):
+        yield {"kind": "token", "text": "La temperatura es "}
+        await asyncio.sleep(0.45)
+        yield {"kind": "token", "text": "de 22 grados, maestro."}
+        yield {"kind": "state", "state": {"final_answer": "La temperatura es de 22 grados, maestro."}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    events = _collect_sse(session="call-pause")
+    lines = [line for _at, chunk in events for line in chunk.splitlines() if line.strip()]
+    spoken = _spoken(events)
+    assert spoken == "La temperatura es de 22 grados, maestro."
+    assert ": keep-alive" in lines
+    assert lines[-1] == "data: [DONE]"
+    done_at = next(i for i, line in enumerate(lines) if line == "data: [DONE]")
+    keep_at = next(i for i, line in enumerate(lines) if line == ": keep-alive")
+    assert keep_at < done_at, "el keep-alive no puede ir después del cierre"
+    get_settings.cache_clear()
+
+
+def test_vapi_logs_when_vapi_cancels_the_stream(monkeypatch, caplog):
+    """GeneratorExit / CancelledError: se anota que cortó Vapi, no el generador."""
+    monkeypatch.setenv("VAPI_FILLER_DELAY_SECONDS", "0.05")
+
+    async def _stream(text, session_id=None):
+        await asyncio.sleep(5)
+        yield {"kind": "state", "state": {"final_answer": "tarde"}}
+
+    monkeypatch.setattr("jarvis.api.vapi_routes.astream_jarvis", _stream)
+    from jarvis.api.vapi_routes import _sse_supervisor_reply
+    from jarvis.config import get_settings
+
+    get_settings.cache_clear()
+    caplog.set_level(logging.WARNING, logger="jarvis.api.vapi_routes")
+
+    async def scenario() -> None:
+        stream = _sse_supervisor_reply("hola", "call-cancel-log", "chatcmpl-test")
+        await stream.__anext__()
+        await stream.__anext__()
+        await stream.aclose()
+
+    asyncio.run(scenario())
+    disconnects = [rec.getMessage() for rec in caplog.records if "[VAPI DISCONNECT]" in rec.getMessage()]
+    assert disconnects, "hay que saber si cortó Vapi o el generador"
+    assert "call-cancel-log" in disconnects[0]
+    get_settings.cache_clear()
+
+
 def test_unsaid_tail_only_returns_what_is_missing():
     from jarvis.api.vapi_routes import _unsaid_tail
 

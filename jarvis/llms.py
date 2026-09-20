@@ -851,12 +851,13 @@ def _chat_openrouter(*, model: str, temperature: float, **kwargs: Any) -> Any:
     from langchain_openai import ChatOpenAI
 
     settings = get_settings()
+    max_tokens = kwargs.pop("max_tokens", 1500)
     return ChatOpenAI(
         api_key=_openrouter_api_key(),
         base_url=(settings.openrouter_base_url or OPENROUTER_BASE_URL).rstrip("/"),
         model=_openrouter_model(model),
         temperature=temperature,
-        max_tokens=1500,
+        max_tokens=max_tokens,
         default_headers=_openrouter_headers(),
         **kwargs,
     )
@@ -899,11 +900,13 @@ def get_executor_model() -> BaseChatModel:
         return OfflineChatModel(role="executor")
     # El ejecutor es el único que redacta para el usuario y el que hace
     # `.bind_tools()` (Tavily, OSINT, resto). `streaming=True` para que
-    # `astream_jarvis` reexpida tokens a Vapi.
+    # `astream_jarvis` reexpida tokens a Vapi. `max_tokens=2500` evita que
+    # una explicación larga tras una herramienta se corte a mitad de frase.
     return _chat_openrouter(
         model=settings.executor_model,
         temperature=0.7,
         streaming=True,
+        max_tokens=2500,
     )
 
 

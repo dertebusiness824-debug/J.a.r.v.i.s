@@ -36,7 +36,7 @@ def test_executor_is_free_llama_on_openrouter(monkeypatch):
         llm = get_executor_model()
         assert llm.model_name == OPENROUTER_FREE_MODEL
         assert float(llm.temperature) == 0.7
-        assert int(llm.max_tokens) == 1500
+        assert int(llm.max_tokens) == 2500
         base = str(getattr(llm, "openai_api_base", None) or "")
         assert OPENROUTER_BASE_URL in base
         headers = llm.default_headers or {}

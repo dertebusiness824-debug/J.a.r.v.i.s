@@ -338,6 +338,16 @@ def _idle_speech_gap() -> float:
     return max(float(get_settings().vapi_idle_speech_seconds), 0.5)
 
 
+def _heartbeat_gap() -> float:
+    """Pausa máxima sin emitir nada: un comentario SSE mantiene el socket.
+
+    El `VAPI_KEEPALIVE_SECONDS` de 5 s es demasiado para Vapi si el LLM se
+    calla entre tokens (tras una tool). Se recorta a 0,5 s: no es voz, pero
+    tampoco se manda `finish_reason`/`[DONE]` — eso solo sale al cerrar.
+    """
+    return min(max(float(get_settings().vapi_keepalive_seconds), 0.1), 0.5)
+
+
 def _pick_phrase(pool: tuple[str, ...], key: str) -> str:
     previous = _LAST_PHRASE.get(key)
     options = [phrase for phrase in pool if phrase != previous]
@@ -504,6 +514,10 @@ async def _speech_events(
                 _log_supervisor(session_id, state)
                 queue.put_nowait({"kind": "answer", "text": spoken_from_state(state)})
     except asyncio.CancelledError:
+        logger.warning(
+            "🔌 [VAPI DISCONNECT] call=%s la bomba del grafo se canceló (Vapi colgó o el generador se cerró).",
+            session_id,
+        )
         raise
     except Exception:
         logger.exception(
@@ -543,6 +557,18 @@ async def _sse_supervisor_reply(
     try:
         async for chunk in _sse_from_events(queue, session_id, completion_id):
             yield chunk
+    except GeneratorExit:
+        logger.warning(
+            "🔌 [VAPI DISCONNECT] call=%s Vapi cerró el stream (GeneratorExit); no mando [DONE].",
+            session_id,
+        )
+        raise
+    except asyncio.CancelledError:
+        logger.warning(
+            "🔌 [VAPI DISCONNECT] call=%s el generador SSE se canceló (CancelledError); no mando [DONE].",
+            session_id,
+        )
+        raise
     finally:
         # Vale tanto para el timeout como para una llamada que se cuelga a medias:
         # el hilo del grafo seguirá, pero aquí ya no queda nadie escuchando.
@@ -574,9 +600,10 @@ async def _sse_from_events(
             finish_reason=None,
         )
 
-    timeout, beat = _budget()
+    timeout, _beat = _budget()
     filler_delay = _filler_delay()
     idle_gap = _idle_speech_gap()
+    heartbeat = _heartbeat_gap()
     deadline = started + timeout
     gate = TokenGate()
     bridge: list[str] = []
@@ -606,7 +633,8 @@ async def _sse_from_events(
                 target = min(target, pending[1])
             try:
                 item = await asyncio.wait_for(
-                    queue.get(), timeout=max(0.02, min(beat, target - now, deadline - now))
+                    queue.get(),
+                    timeout=max(0.02, min(heartbeat, target - now, deadline - now)),
                 )
             except asyncio.TimeoutError:
                 now = time.monotonic()
@@ -627,7 +655,10 @@ async def _sse_from_events(
                     last_speech = now
                     last_narration = now
                     continue
-                if now + 0.01 < target:
+                if now + 0.01 < target or gate.spoken:
+                    # Pausa del LLM (p.ej. entre tokens tras una tool): keep-alive,
+                    # nunca finish_reason ni [DONE]. Si ya hay prosa del ejecutor
+                    # no se mete un «Sigo en ello» a mitad de frase.
                     yield KEEPALIVE
                     continue
                 phrase = pick_wait_phrase(session_id) if tail_char else pick_filler(session_id)
@@ -677,6 +708,18 @@ async def _sse_from_events(
                 yield _say(text)
                 tail_char = text[-1]
                 last_speech = time.monotonic()
+    except GeneratorExit:
+        logger.warning(
+            "🔌 [VAPI DISCONNECT] call=%s Vapi abortó el SSE a mitad de frase (GeneratorExit).",
+            session_id,
+        )
+        raise
+    except asyncio.CancelledError:
+        logger.warning(
+            "🔌 [VAPI DISCONNECT] call=%s el SSE se canceló a mitad de frase; no mando [DONE].",
+            session_id,
+        )
+        raise
     except Exception:
         logger.exception(
             "💥 [VAPI ERROR] call=%s fallo interno: respondo con voz para no dejar la llamada muda",
