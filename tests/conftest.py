@@ -4,6 +4,7 @@ import pytest
 
 os.environ["JARVIS_OFFLINE"] = "true"
 os.environ.pop("OPENAI_API_KEY", None)
+os.environ.pop("OPENROUTER_API_KEY", None)
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
 from jarvis import agent_core as agent_core_mod
@@ -23,6 +24,7 @@ def _offline_env(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path / "sandbox"))
     monkeypatch.setenv("CHROMA_DIR", str(tmp_path / "chroma"))
     monkeypatch.setenv("JARVIS_DB_PATH", str(tmp_path / "jarvis.db"))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("HUNTER_API_KEY", raising=False)
     monkeypatch.delenv("HUNTERIO_API_KEY", raising=False)

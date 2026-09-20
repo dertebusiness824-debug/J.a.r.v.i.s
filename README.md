@@ -5,8 +5,7 @@ Sistema de agentes autónomos con **Supervisor LangGraph**: el router recibe el 
 ## Stack
 
 - **Orquestación:** LangGraph `StateGraph` (flujos cíclicos)
-- **Planificación:** OpenAI o Anthropic (configurable; `o1` / Claude 3.5 Sonnet)
-- **Ejecución / function calling:** GPT-4o
+- **Planificación y ejecución:** OpenRouter (`ChatOpenAI` + `https://openrouter.ai/api/v1`), modelo `nousresearch/hermes-3-llama-3.1-70b`. Anthropic sigue disponible si `PLANNER_PROVIDER=anthropic`.
 - **Memoria:** ChromaDB local (fallback in-memory)
 - **API:** FastAPI asíncrono
 - **WhatsApp:** puente local `whatsapp-web.js` (QR con tu número personal)
@@ -54,7 +53,7 @@ Hace falta **dos procesos**: FastAPI en `:8000` y el puente WhatsApp en `:3000`.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # añade OPENAI_API_KEY o ANTHROPIC_API_KEY
+cp .env.example .env   # añade OPENROUTER_API_KEY (o ANTHROPIC_API_KEY)
 cd whatsapp-bridge && npm install && cd ..
 chmod +x start_all.sh
 ./start_all.sh

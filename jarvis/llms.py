@@ -808,6 +808,38 @@ def heuristic_route(text: str) -> RouteDecision:
     return OfflineChatModel(role="planner")._route(text)
 
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+HERMES_3 = "nousresearch/hermes-3-llama-3.1-70b"
+
+
+def _openrouter_api_key() -> str | None:
+    settings = get_settings()
+    return settings.openrouter_api_key or settings.openai_api_key
+
+
+def _openrouter_model(configured: str | None) -> str:
+    """Slug de OpenRouter (`vendor/model`). Un `gpt-4o` residual del .env no cuenta."""
+    name = (configured or "").strip()
+    if "/" in name:
+        return name
+    return HERMES_3
+
+
+def _chat_openrouter(*, model: str, temperature: float, **kwargs: Any) -> Any:
+    """ChatOpenAI apuntando a OpenRouter. `.bind_tools()` sigue igual en el ejecutor."""
+    from langchain_openai import ChatOpenAI
+
+    settings = get_settings()
+    return ChatOpenAI(
+        api_key=_openrouter_api_key(),
+        base_url=(settings.openrouter_base_url or OPENROUTER_BASE_URL).rstrip("/"),
+        model=_openrouter_model(model),
+        temperature=temperature,
+        max_tokens=1500,
+        **kwargs,
+    )
+
+
 def get_planner_model() -> Any:
     """Planificador y Supervisor: solo producen `Plan` y `RouteDecision`, nunca voz.
 
@@ -832,11 +864,8 @@ def get_planner_model() -> Any:
             temperature=0,
             disable_streaming=True,
         )
-    from langchain_openai import ChatOpenAI
-
-    return ChatOpenAI(
+    return _chat_openrouter(
         model=settings.planner_model,
-        api_key=settings.openai_api_key,
         temperature=0,
         disable_streaming=True,
     )
@@ -846,15 +875,12 @@ def get_executor_model() -> BaseChatModel:
     settings = get_settings()
     if settings.offline:
         return OfflineChatModel(role="executor")
-    from langchain_openai import ChatOpenAI
-
-    return ChatOpenAI(
+    # El ejecutor es el único que redacta para el usuario y el que hace
+    # `.bind_tools()` (Tavily, OSINT, resto). `streaming=True` para que
+    # `astream_jarvis` reexpida tokens a Vapi.
+    return _chat_openrouter(
         model=settings.executor_model,
-        api_key=settings.openai_api_key,
-        temperature=0,
-        # El ejecutor es el único que redacta para el usuario. Con `streaming=True`
-        # su `invoke` va emitiendo tokens, que `astream_jarvis` reexpide a Vapi para
-        # que la voz empiece a hablar sin esperar el mensaje completo.
+        temperature=0.7,
         streaming=True,
     )
 
