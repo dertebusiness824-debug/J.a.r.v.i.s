@@ -10,8 +10,14 @@ services:
         value: "3.12.3"
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: PLANNER_MODEL
+        value: nousresearch/hermes-3-llama-3.1-70b
+      - key: EXECUTOR_MODEL
+        value: nousresearch/hermes-3-llama-3.1-70b
       - key: VAPI_PUBLIC_KEY
         sync: false
       - key: VAPI_ASSISTANT_ID

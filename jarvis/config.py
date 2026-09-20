@@ -18,10 +18,12 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     planner_provider: str = Field(default="openai")
-    planner_model: str = Field(default="gpt-4o")
-    executor_model: str = Field(default="gpt-4o")
+    planner_model: str = Field(default="nousresearch/hermes-3-llama-3.1-70b")
+    executor_model: str = Field(default="nousresearch/hermes-3-llama-3.1-70b")
 
     jarvis_offline: bool = False
 
@@ -112,7 +114,7 @@ class Settings(BaseSettings):
 
     @property
     def has_llm_credentials(self) -> bool:
-        return bool(self.openai_api_key or self.anthropic_api_key)
+        return bool(self.openrouter_api_key or self.openai_api_key or self.anthropic_api_key)
 
     @property
     def offline(self) -> bool:
